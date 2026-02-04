@@ -991,7 +991,9 @@ class TradingBot:
             data_period = PERIOD      # 5d dat
 
             df = strategy.fetch_data(period=data_period, interval=data_interval)
-            if df.empty: return False
+            if df.empty:
+                self.log(f"[{yf_ticker}] No data from yfinance - skipping")
+                return False
 
             # Vyber strategii podle nastavení
             if self.strategy_type == "mean_reversion":
