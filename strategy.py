@@ -18,6 +18,36 @@ class Strategy:
             print(f"Error fetching {self.ticker}: {e}")
             return pd.DataFrame()
 
+    def fetch_trend_data(self):
+        """Fetch 4h data for trend analysis."""
+        try:
+             # 1mo provides stable EMA50 for 4h timeframe (6 candles/day * 20 days = 120 candles)
+            return self.fetch_data(period="1mo", interval="4h")
+        except:
+            return pd.DataFrame()
+
+    def get_trend_direction(self, df_trend):
+        """
+        Determine higher-timeframe trend direction.
+        Strategy: Price > EMA 50 = UP, Price < EMA 50 = DOWN
+        """
+        if df_trend.empty or len(df_trend) < 50:
+            return "NEUTRAL"
+        
+        try:
+            # Calculate EMA 50 on 4h data
+            ema_50 = ta.trend.EMAIndicator(close=df_trend['Close'], window=50).ema_indicator()
+            last_close = df_trend['Close'].iloc[-1]
+            last_ema = ema_50.iloc[-1]
+            
+            if pd.isna(last_ema):
+                return "NEUTRAL"
+                
+            return "UP" if last_close > last_ema else "DOWN"
+        except Exception as e:
+            print(f"Trend calc error: {e}")
+            return "NEUTRAL"
+
     def calculate_indicators(self, df):
         """Calculate Top Scalping Indicators using 'ta' library."""
         if df.empty: return df

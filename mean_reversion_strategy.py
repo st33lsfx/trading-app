@@ -124,35 +124,39 @@ class MeanReversionStrategy:
 
         return True, "Active trading hours"
 
-    def check_filters(self, df, signal_direction):
+    def check_filters(self, df, signal_direction, major_trend="NEUTRAL"):
         """
         Check all filters and return (passed, reasons).
+        major_trend: "UP", "DOWN" or "NEUTRAL" (from 4h timeframe)
         """
         reasons = []
         passed = True
         row = df.iloc[-1]
 
-        # 1. TREND FILTER
-        if self.use_trend_filter:
-            trend = row.get('trend', 'NEUTRAL')
-            
-            # Mean reversion: Trade WITH the trend for higher probability
-            # BUY only in uptrend, SELL only in downtrend
-            if signal_direction == "BUY" and trend == "DOWN":
-                # Allow counter-trend if RSI is extremely oversold
-                if row['rsi'] > 25:  # Not extreme enough
-                    passed = False
-                    reasons.append(f"❌ Trend filter: DOWN trend, risky BUY")
-                else:
-                    reasons.append(f"⚠️ Counter-trend BUY (extreme RSI)")
-            elif signal_direction == "SELL" and trend == "UP":
-                if row['rsi'] < 75:  # Not extreme enough
-                    passed = False
-                    reasons.append(f"❌ Trend filter: UP trend, risky SELL")
-                else:
-                    reasons.append(f"⚠️ Counter-trend SELL (extreme RSI)")
+        # 1. TREND FILTER (Multi-Timeframe)
+        if self.use_trend_filter and major_trend != "NEUTRAL":
+            # BUY only if 4h trend is UP
+            if signal_direction == "BUY" and major_trend == "DOWN":
+                passed = False
+                reasons.append(f"❌ Trend Mismatch: 4h is DOWN")
+            # SELL only if 4h trend is DOWN
+            elif signal_direction == "SELL" and major_trend == "UP":
+                passed = False
+                reasons.append(f"❌ Trend Mismatch: 4h is UP")
             else:
-                reasons.append(f"✅ Trend aligned ({trend})")
+                reasons.append(f"✅ Trend Aligned: 4h is {major_trend}")
+        elif self.use_trend_filter:
+             # Fallback to local 5m trend if major_trend not available
+             local_trend = row.get('trend', 'NEUTRAL')
+             if signal_direction == "BUY" and local_trend == "DOWN":
+                 if row['rsi'] > 25:
+                     passed = False
+                     reasons.append(f"❌ Local Trend DOWN (RISKY)")
+             elif signal_direction == "SELL" and local_trend == "UP":
+                 if row['rsi'] < 75:
+                     passed = False
+                     reasons.append(f"❌ Local Trend UP (RISKY)")
+
 
         # 1.5 ADX FILTER (CRITICAL for mean reversion!)
         # ADX < 25 = ranging market (GOOD for mean reversion)
@@ -200,10 +204,10 @@ class MeanReversionStrategy:
 
         return passed, reasons
 
-    def get_signal(self, df, config=None):
+    def get_signal(self, df, config=None, major_trend="NEUTRAL"):
         """
         Získej trading signál s pokročilými filtry.
-
+        major_trend: "UP", "DOWN" or "NEUTRAL"
         Returns:
             dict s klíči: signal, confidence, sl, tp, rsi, reason, filters
         """
@@ -284,7 +288,7 @@ class MeanReversionStrategy:
         # =============================================
 
         if potential_signal:
-            filters_passed, filter_results = self.check_filters(df, potential_signal)
+            filters_passed, filter_results = self.check_filters(df, potential_signal, major_trend=major_trend)
 
             # Calculate Risk:Reward
             if potential_signal == "BUY":
@@ -314,7 +318,8 @@ class MeanReversionStrategy:
 
                 reason = f"Mean reversion {signal}: RSI={rsi:.1f}, BB touch"
             else:
-                reason = f"Signal {potential_signal} blocked by filters"
+                filter_reason = filter_results[0] if filter_results else "filters"
+                reason = f"Blocked: {filter_reason}"
 
         # No signal
         else:

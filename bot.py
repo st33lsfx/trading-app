@@ -991,7 +991,13 @@ class TradingBot:
             data_interval = INTERVAL  # 5m pro všechny strategie
             data_period = PERIOD      # 5d dat
 
+            # Fetch data (Normal)
             df = strategy.fetch_data(period=data_period, interval=data_interval)
+            
+            # Fetch Trend Data (4h) for MTF
+            df_trend = strategy.fetch_trend_data()
+            major_trend = strategy.get_trend_direction(df_trend)
+            
             if df.empty:
                 # Still show in scanner with "NO DATA" status
                 self.scan_results.append({
@@ -1006,7 +1012,7 @@ class TradingBot:
 
             # Vyber strategii podle nastavení
             if self.strategy_type == "mean_reversion":
-                result = self.mean_reversion.get_signal(df)
+                result = self.mean_reversion.get_signal(df, major_trend=major_trend)
                 signal = result.get("signal")  # Mean reversion vrací "signal" místo "action"
             else:
                 df = strategy.calculate_indicators(df)
