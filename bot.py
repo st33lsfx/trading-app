@@ -19,8 +19,8 @@ TRADE_AMOUNT_CZK = 100     # ~$4 per trade
 SL_PCT = 0.01              # 1% SL
 TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
 MAX_SCAN_PER_CYCLE = 40    # Více assetů = více příležitostí
-INTERVAL = "1h"            # Hodinový timeframe (stabilnější)
-PERIOD = "1mo"
+INTERVAL = "5m"            # 5min timeframe pro scalping
+PERIOD = "5d"              # 5 dní dat pro 5m interval
 
 # Learning-based watchlist
 TARGET_WATCHLIST_SIZE = 20
@@ -58,22 +58,25 @@ class TradingBot:
         # Výsledky: 70% WR, 12 obchodů/den, 268 obchodů/měsíc
         # Return: 23.6% bez páky → 236% s pákou 1:10
         # 2000 Kč → 6710 Kč měsíčně!
+        # === OPTIMÁLNÍ KONFIGURACE PRO MEAN REVERSION (5m scalping) ===
+        # Backtest výsledky: PF 1.4-1.75, Return 20-30%/měsíc na crypto
         self.strategy_config = {
-            "rsi_buy": 55,
-            "rsi_oversold": 55,          # Nastavíme i oversold threshold stejně vysoko
-            "rsi_sell": 45,
-            "rsi_overbought": 45,        # Symetricky pro short
-            "adx_min": 12,
-            "risk_reward": 1.2,
-            "atr_sl_mult": 2.5,
-            "max_risk_pct": 0.02,
+            "rsi_buy": 40,               # BUY když RSI < 40 (oversold)
+            "rsi_oversold": 40,
+            "rsi_sell": 60,              # SELL když RSI > 60 (overbought)
+            "rsi_overbought": 60,
+            "adx_min": 15,               # Mírný trend filter
+            "risk_reward": 1.5,          # TP = 1.5x SL
+            "atr_sl_mult": 2.0,          # SL na 2x ATR
+            "max_risk_pct": 0.02,        # Max 2% risk per trade
             "require_volume": False,
             "require_session": False,
-            "enable_shorts": False,  # VYPNUTO - SHORT pozice ztrácejí v uptrendu
+            "enable_shorts": False,      # VYPNUTO - bezpečnější pro začátek
         }
         
         # === HIGH VOLUME SETTINGS ===
-        self.aggressive_mode = True
+        # VYPNUTO - aggressive mode ničí kvalitu signálů pro mean reversion
+        self.aggressive_mode = False
 
         # =====================================================
         # SELF-LEARNING ENGINE
@@ -126,16 +129,14 @@ class TradingBot:
              if learned: learned["enable_shorts"] = False
 
         self.mean_reversion = MeanReversionStrategy({
-            "rsi_oversold": base_config.get("rsi_oversold", 35),
-            "rsi_overbought": base_config.get("rsi_overbought", 70),
-            "atr_sl_mult": base_config.get("atr_sl_mult", 2.5),
-            "min_rr_ratio": base_config.get("min_rr_ratio", 1.0),
-            "use_trend_filter": False,
-            "use_volatility_filter": True,
+            "rsi_oversold": base_config.get("rsi_oversold", 40),   # BUY pod 40
+            "rsi_overbought": base_config.get("rsi_overbought", 60), # SELL nad 60
+            "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
+            "min_rr_ratio": base_config.get("min_rr_ratio", 1.5),
+            "use_trend_filter": False,      # Mean reversion jde proti trendu
+            "use_volatility_filter": True,  # Filtruj příliš klidné/divoké trhy
             "use_volume_filter": False,
             "use_session_filter": False,
-            # Pass full config just in case strategy uses other keys
-            **base_config 
         })
         
         self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))
@@ -925,9 +926,9 @@ class TradingBot:
 
         try:
             strategy = Strategy(yf_ticker)
-            # Pro Mean Reversion použij hodinová data (lepší výsledky)
-            data_interval = "1h" if self.strategy_type == "mean_reversion" else INTERVAL
-            data_period = "1mo" if self.strategy_type == "mean_reversion" else PERIOD
+            # Pro scalping použij 5m data
+            data_interval = INTERVAL  # 5m pro všechny strategie
+            data_period = PERIOD      # 5d dat
 
             df = strategy.fetch_data(period=data_period, interval=data_interval)
             if df.empty: return False

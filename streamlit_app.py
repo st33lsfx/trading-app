@@ -258,268 +258,6 @@ st.markdown("""
     .kpi-card.danger .kpi-value { color: #ff4757; }
     .kpi-card.warning .kpi-value { color: #fbbf24; }
     .kpi-card.info .kpi-value { color: #3b82f6; }
-
-    /* === RESPONSIVE DESIGN === */
-    @media (max-width: 1200px) {
-        .kpi-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
-        .metric-card .value {
-            font-size: 1.5rem;
-        }
-    }
-
-    @media (max-width: 768px) {
-        .kpi-grid {
-            grid-template-columns: 1fr;
-        }
-        .metric-card {
-            padding: 16px;
-        }
-        .metric-card .value {
-            font-size: 1.3rem;
-        }
-        .metric-card .label {
-            font-size: 0.7rem;
-        }
-        .hero-banner {
-            padding: 20px;
-        }
-        .hero-banner h2 {
-            font-size: 1.3rem;
-        }
-        .stTabs [data-baseweb="tab"] {
-            padding: 8px 12px;
-            font-size: 0.85rem;
-        }
-        [data-testid="stMetricValue"] {
-            font-size: 1.4rem !important;
-        }
-    }
-
-    @media (max-width: 480px) {
-        .metric-card .icon {
-            font-size: 1.5rem;
-        }
-        .stTabs [data-baseweb="tab-list"] {
-            flex-wrap: wrap;
-        }
-    }
-
-    /* === QUICK STATS BAR === */
-    .quick-stats-bar {
-        display: flex;
-        gap: 12px;
-        padding: 12px;
-        background: linear-gradient(90deg, #1e2530 0%, #252d3a 100%);
-        border-radius: 12px;
-        border: 1px solid #2d3748;
-        margin-bottom: 20px;
-        overflow-x: auto;
-    }
-
-    .quick-stat {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
-        background: #0f1419;
-        border-radius: 8px;
-        white-space: nowrap;
-        min-width: fit-content;
-    }
-
-    .quick-stat .stat-icon {
-        font-size: 1.2rem;
-    }
-
-    .quick-stat .stat-value {
-        font-weight: 700;
-        font-size: 1rem;
-    }
-
-    .quick-stat .stat-label {
-        color: #64748b;
-        font-size: 0.75rem;
-    }
-
-    /* === IMPROVED CARDS === */
-    .info-card {
-        background: rgba(30, 41, 59, 0.4);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 16px;
-    }
-
-    .info-card-title {
-        color: #f8fafc;
-        font-weight: 600;
-        margin-bottom: 4px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .info-card-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #00f2ea;
-    }
-
-    .info-card-subtitle {
-        color: #64748b;
-        font-size: 0.8rem;
-        margin: 2px 0 0 0;
-    }
-
-    /* === GLASSMORPHISM EFFECTS === */
-    .glass-panel {
-        background: rgba(30, 37, 48, 0.8);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
-    }
-
-    /* === ANIMATED GRADIENTS === */
-    .gradient-border {
-        position: relative;
-        border-radius: 16px;
-        padding: 2px;
-        background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #00d26a 100%);
-        background-size: 200% 200%;
-        animation: gradient-shift 3s ease infinite;
-    }
-
-    .gradient-border-inner {
-        background: #1e2530;
-        border-radius: 14px;
-        padding: 20px;
-    }
-
-    @keyframes gradient-shift {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-
-    /* === LIVE INDICATOR === */
-    .live-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 12px;
-        background: rgba(0, 210, 106, 0.15);
-        border: 1px solid rgba(0, 210, 106, 0.3);
-        border-radius: 20px;
-        font-size: 0.8rem;
-        color: #00d26a;
-        font-weight: 600;
-    }
-
-    .live-indicator .dot {
-        width: 8px;
-        height: 8px;
-        background: #00d26a;
-        border-radius: 50%;
-        animation: pulse 1.5s ease infinite;
-    }
-
-    /* === PROGRESS BARS === */
-    .custom-progress {
-        height: 8px;
-        background: #252d3a;
-        border-radius: 4px;
-        overflow: hidden;
-    }
-
-    .custom-progress-bar {
-        height: 100%;
-        border-radius: 4px;
-        transition: width 0.5s ease;
-    }
-
-    .custom-progress-bar.success { background: linear-gradient(90deg, #00d26a 0%, #00a854 100%); }
-    .custom-progress-bar.danger { background: linear-gradient(90deg, #ff4757 0%, #ff3040 100%); }
-    .custom-progress-bar.warning { background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%); }
-    .custom-progress-bar.info { background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%); }
-
-    /* === TABLE IMPROVEMENTS === */
-    .styled-table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-
-    .styled-table th {
-        background: #252d3a;
-        color: #94a3b8;
-        font-weight: 600;
-        text-transform: uppercase;
-        font-size: 0.75rem;
-        letter-spacing: 0.5px;
-        padding: 12px 16px;
-        text-align: left;
-        border-bottom: 2px solid #3b82f6;
-    }
-
-    .styled-table td {
-        padding: 12px 16px;
-        border-bottom: 1px solid #2d3748;
-        color: #f8fafc;
-    }
-
-    .styled-table tr:hover {
-        background: rgba(59, 130, 246, 0.1);
-    }
-
-    /* === TOOLTIP === */
-    .tooltip-wrapper {
-        position: relative;
-        display: inline-block;
-    }
-
-    .tooltip-text {
-        visibility: hidden;
-        background: #0f1419;
-        color: #f8fafc;
-        text-align: center;
-        border-radius: 6px;
-        padding: 8px 12px;
-        position: absolute;
-        z-index: 1000;
-        bottom: 125%;
-        left: 50%;
-        transform: translateX(-50%);
-        font-size: 0.8rem;
-        white-space: nowrap;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        border: 1px solid #2d3748;
-    }
-
-    .tooltip-wrapper:hover .tooltip-text {
-        visibility: visible;
-    }
-
-    /* === SCROLLBAR === */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: #1a1f2e;
-        border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background: #3b82f6;
-        border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: #2563eb;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -568,34 +306,23 @@ def get_or_create_bot(broker_code):
     return bot
 
 # --- Sidebar ---
-# Logo and Branding with version badge
+# Logo and Branding
 st.sidebar.markdown("""
 <div style="text-align: center; padding: 20px 0 24px 0; border-bottom: 1px solid #2d3748; margin-bottom: 20px;">
-    <div class="gradient-border" style="width: 70px; height: 70px; margin: 0 auto 12px auto; border-radius: 18px;">
-        <div class="gradient-border-inner" style="
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 32px;
-            padding: 0;
-            border-radius: 16px;
-        ">🤖</div>
-    </div>
-    <h2 style="margin: 0; font-size: 1.4rem; font-weight: 700; color: #f8fafc;">TradingBot</h2>
-    <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #64748b;">AI-Powered Trading System</p>
-    <div style="margin-top: 8px;">
-        <span style="
-            background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
-            color: white;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 0.65rem;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        ">v2.0 PRO</span>
-    </div>
+    <div style="
+        background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+        width: 60px;
+        height: 60px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 12px auto;
+        font-size: 28px;
+        box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+    ">🤖</div>
+    <h2 style="margin: 0; font-size: 1.3rem; font-weight: 700; color: #f8fafc;">TradingBot PRO</h2>
+    <p style="margin: 4px 0 0 0; font-size: 0.75rem; color: #64748b;">AI Trading System v2.0</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -810,132 +537,37 @@ if broker_code == "capital":
 
     st.sidebar.divider()
 
-# Footer info with more details
+# Footer info
 st.sidebar.markdown("""
 <div style="
     background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%);
     border: 1px solid #2d3748;
-    border-radius: 12px;
-    padding: 16px;
+    border-radius: 10px;
+    padding: 12px;
     margin-top: 8px;
 ">
-    <div style="text-align: center; margin-bottom: 12px;">
-        <span style="color: #8b5cf6; font-weight: 600; font-size: 0.8rem;">🧠 Mean Reversion Strategy</span>
-    </div>
-    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-        <span style="color: #64748b; font-size: 0.7rem;">Win Rate</span>
-        <span style="color: #00d26a; font-size: 0.7rem; font-weight: 600;">56.1%</span>
-    </div>
-    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-        <span style="color: #64748b; font-size: 0.7rem;">Timeframe</span>
-        <span style="color: #3b82f6; font-size: 0.7rem; font-weight: 600;">1H</span>
-    </div>
-    <div style="display: flex; justify-content: space-between;">
-        <span style="color: #64748b; font-size: 0.7rem;">Assets</span>
-        <span style="color: #fbbf24; font-size: 0.7rem; font-weight: 600;">30</span>
-    </div>
-    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #2d3748;">
-        <p style="color: #64748b; font-size: 0.65rem; margin: 0; text-align: center;">
-            💡 Bot uses Bollinger Bands + RSI<br>
-            for mean reversion signals
-        </p>
-    </div>
+    <p style="color: #64748b; font-size: 0.75rem; margin: 0; text-align: center;">
+        🧠 Strategy: Mean Reversion<br>
+        📊 Win Rate: 56% | Assets: 30
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
 # --- Main Dashboard ---
-# Professional Header with Live Status
+# Custom Header with gradient
 st.markdown(f"""
 <div style="margin-bottom: 24px;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
-        <div>
-            <h1 style="
-                background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-                font-size: 2.2rem;
-                font-weight: 800;
-                margin: 0;
-                line-height: 1.2;
-            ">{broker_mode}</h1>
-            <p style="color: #64748b; margin-top: 4px; font-size: 0.9rem;">Real-time AI-powered trading dashboard</p>
-        </div>
-        <div style="display: flex; gap: 12px; align-items: center;">
-            <div class="live-indicator">
-                <span class="dot"></span>
-                {'LIVE' if is_running else 'OFFLINE'}
-            </div>
-            <div style="background: #1e2530; padding: 8px 16px; border-radius: 8px; border: 1px solid #2d3748;">
-                <span style="color: #64748b; font-size: 0.75rem;">Strategy:</span>
-                <span style="color: #8b5cf6; font-weight: 600; margin-left: 4px;">Mean Reversion</span>
-            </div>
-        </div>
-    </div>
+    <h1 style="
+        background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 2.5rem;
+        font-weight: 800;
+        margin: 0;
+    ">{broker_mode}</h1>
+    <p style="color: #64748b; margin-top: 4px;">Real-time trading dashboard</p>
 </div>
 """, unsafe_allow_html=True)
-
-# Quick Stats Bar - Always visible overview
-try:
-    quick_cash = 0
-    quick_equity = 0
-    quick_positions = 0
-    quick_daily_pnl = getattr(current_bot, 'daily_pnl', 0)
-
-    if hasattr(current_bot, 'cached_account') and current_bot.cached_account:
-        data = current_bot.cached_account
-        if 'accounts' in data:
-            acc = data['accounts'][0]
-            quick_cash = acc.get('balance', {}).get('available', 0)
-            quick_equity = acc.get('balance', {}).get('total', 0)
-
-    if hasattr(current_bot, 'cached_positions'):
-        quick_positions = len(current_bot.cached_positions or [])
-
-    pnl_color = "#00d26a" if quick_daily_pnl >= 0 else "#ff4757"
-    pnl_icon = "+" if quick_daily_pnl >= 0 else ""
-
-    st.markdown(f"""
-    <div class="quick-stats-bar">
-        <div class="quick-stat">
-            <span class="stat-icon">💰</span>
-            <div>
-                <div class="stat-value" style="color: #f8fafc;">${quick_cash:,.2f}</div>
-                <div class="stat-label">Available</div>
-            </div>
-        </div>
-        <div class="quick-stat">
-            <span class="stat-icon">📊</span>
-            <div>
-                <div class="stat-value" style="color: #3b82f6;">${quick_equity:,.2f}</div>
-                <div class="stat-label">Equity</div>
-            </div>
-        </div>
-        <div class="quick-stat">
-            <span class="stat-icon">📈</span>
-            <div>
-                <div class="stat-value" style="color: #8b5cf6;">{quick_positions}</div>
-                <div class="stat-label">Open Trades</div>
-            </div>
-        </div>
-        <div class="quick-stat">
-            <span class="stat-icon">💹</span>
-            <div>
-                <div class="stat-value" style="color: {pnl_color};">{pnl_icon}${quick_daily_pnl:.2f}</div>
-                <div class="stat-label">Today's P&L</div>
-            </div>
-        </div>
-        <div class="quick-stat">
-            <span class="stat-icon">🎯</span>
-            <div>
-                <div class="stat-value" style="color: #fbbf24;">30</div>
-                <div class="stat-label">Assets</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-except:
-    pass
 
 # Helper function for custom metric cards
 def render_metric_card(icon, label, value, subtitle="", color_class=""):
@@ -1099,17 +731,6 @@ tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "🏆 
 with tabs[0]:
     @st.fragment(run_every=1)
     def show_scanner():
-        # Section Header
-        st.markdown("""
-        <div class="info-card-header" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
-            <div class="info-card-icon" style="background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);">🔍</div>
-            <div>
-                <h4 class="info-card-title">AI Market Scanner</h4>
-                <p class="info-card-subtitle">Real-time analysis across 30 assets</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
         # Header with scan stats
         results = getattr(current_bot, 'scan_results', [])
         
@@ -1261,17 +882,6 @@ with tabs[0]:
 with tabs[1]:
     @st.fragment(run_every=2)
     def show_positions():
-        # Section Header
-        st.markdown("""
-        <div class="info-card-header" style="border-bottom: none; margin-bottom: 16px; padding-bottom: 0;">
-            <div class="info-card-icon" style="background: linear-gradient(135deg, #00d26a 0%, #00a854 100%);">📊</div>
-            <div>
-                <h4 class="info-card-title">Open Positions</h4>
-                <p class="info-card-subtitle">Currently active trades with live P&L</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
         positions = []
         try:
             positions = current_bot.client.get_positions()
@@ -1354,16 +964,8 @@ with tabs[1]:
 with tabs[3]:
     @st.fragment(run_every=30)
     def show_performance():
-        # Section Header
-        st.markdown("""
-        <div class="info-card-header" style="border-bottom: none; margin-bottom: 16px; padding-bottom: 0;">
-            <div class="info-card-icon" style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);">🏆</div>
-            <div>
-                <h4 class="info-card-title">Performance Report</h4>
-                <p class="info-card-subtitle">Last 48 hours trading activity</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.subheader("Daily Performance Report")
+        st.caption("Last 48 hours trading activity from Capital.com")
         
         try:
             if current_bot.broker == "capital":
@@ -1469,16 +1071,7 @@ with tabs[3]:
 
 # TAB 3: CHART (Static - No Reload)
 with tabs[2]:
-    # Section Header
-    st.markdown("""
-    <div class="info-card-header" style="border-bottom: none; margin-bottom: 16px; padding-bottom: 0;">
-        <div class="info-card-icon" style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);">📈</div>
-        <div>
-            <h4 class="info-card-title">Live Market Chart</h4>
-            <p class="info-card-subtitle">TradingView powered real-time charts</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.subheader("Market Chart")
     
     # Get open positions for chart selection
     position_symbols = []
@@ -1864,7 +1457,7 @@ with tabs[5]:
                     {'Mean Reversion Strategy' if strategy_type == 'mean_reversion' else 'Momentum Strategy'}
                 </h4>
                 <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-size: 0.9rem;">
-                    {'Bollinger Bands + RSI | 1h timeframe | TP at middle BB' if strategy_type == 'mean_reversion' else 'ADX + EMA + RSI | 5m timeframe | ATR-based TP/SL'}
+                    {'Bollinger Bands + RSI | 5m scalping | TP at middle BB' if strategy_type == 'mean_reversion' else 'ADX + EMA + RSI | 5m timeframe | ATR-based TP/SL'}
                 </p>
             </div>
         </div>
@@ -1947,7 +1540,7 @@ with tabs[5]:
                 <div style="background: #252d3a; padding: 12px; border-radius: 8px; display: flex; align-items: center; gap: 12px;">
                     <div style="background: #8b5cf6; padding: 8px; border-radius: 6px;">⏱️</div>
                     <div>
-                        <div style="color: #f8fafc; font-weight: 500;">1h Interval</div>
+                        <div style="color: #f8fafc; font-weight: 500;">5m Scalping</div>
                         <div style="color: #64748b; font-size: 0.8rem;">Mean Reversion timeframe</div>
                     </div>
                 </div>
