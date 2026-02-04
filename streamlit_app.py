@@ -155,8 +155,7 @@ st.markdown("""
     }
     
 </style>
-""", unsafe_allow_html=True)
-
+    
     .status-badge.stopped {
         background: rgba(255, 71, 87, 0.15);
         border: 1px solid rgba(255, 71, 87, 0.3);
