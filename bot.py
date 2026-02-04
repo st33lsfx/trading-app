@@ -110,28 +110,36 @@ class TradingBot:
         # Hardforce some High Volume settings if aggressive mode is ON (and learning hasn't drastically changed them)
         # Hardforce settings if aggressive mode is ON (Override learned params if needed)
         if self.aggressive_mode:
-             # FIX: Uvolněno na 40/60 pro více signálů (s 60% WR stále profitabilní)
+             # FIX: Přepsat VŠECHNY learned hodnoty pro agresivní trading
              target_buy = 40
              target_sell = 60
              
-             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell} (Optimized for frequency)")
+             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell}, min_rr=0.8, filters=OFF")
              base_config["rsi_oversold"] = target_buy
              base_config["rsi_overbought"] = target_sell
+             base_config["min_rr_ratio"] = 0.8  # Přepsat learned value
+             
+             # CLEAR learned RSI values that override ours
+             if learned:
+                 learned["rsi_oversold"] = target_buy
+                 learned["rsi_overbought"] = target_sell
+                 learned["min_rr_ratio"] = 0.8
              
              # Enable shorts for scalping
              self.strategy_config["enable_shorts"] = True 
              base_config["enable_shorts"] = True
              if learned: learned["enable_shorts"] = True
 
+        # STRATEGY INIT - Všechny filtry VYPNUTÉ pro maximální signály
         self.mean_reversion = MeanReversionStrategy({
             "rsi_oversold": base_config.get("rsi_oversold", 40),   # BUY pod 40
             "rsi_overbought": base_config.get("rsi_overbought", 60), # SELL nad 60
             "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-            "min_rr_ratio": 0.8,  # SNÍŽENO z 1.2 - více obchodů při 60%+ WR
-            "use_trend_filter": False,      # Mean reversion jde proti trendu
-            "use_volatility_filter": False, # Vypnuto - blokuje příliš mnoho signálů
-            "use_volume_filter": False,
-            "use_session_filter": False,
+            "min_rr_ratio": 0.8,  # HARDCODED - nepřepisovat
+            "use_trend_filter": False,      # VYPNUTO
+            "use_volatility_filter": False, # VYPNUTO
+            "use_volume_filter": False,     # VYPNUTO  
+            "use_session_filter": False,    # VYPNUTO
         })
         
         self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))
@@ -1128,21 +1136,17 @@ class TradingBot:
 
                     try:
                         # Capital Client place_market_order(epic, size, direction, sl, tp)
-                        # TRAILING STOP: Lock in profits as price moves
-                        use_trailing = getattr(self, 'use_trailing_stop', True)
-                        
+                        # NOTE: trailing_distance removed - not supported by CapitalClient
                         order_result = self.client.place_market_order(
                             t212_ticker,
                             qty,
                             direction=signal,
                             stop_loss=stop_price,
                             take_profit=limit_price,
-                            trailing_stop=use_trailing,  # ENABLED: Lock in profits
-                            trailing_distance=result.get("atr", 0) * 1.5 if use_trailing else None
+                            trailing_stop=False  # Keep disabled - API doesn't support parameters
                         )
                         
-                        trail_msg = " + Trailing" if use_trailing else ""
-                        self.log(f"✅ {signal} Order CONFIRMED{trail_msg}: {order_result.get('dealReference', 'OK')}")
+                        self.log(f"✅ {signal} Order CONFIRMED: {order_result.get('dealReference', 'OK')}")
                         
                         # 📲 TELEGRAM NOTIFICATION
                         if hasattr(self, 'telegram') and self.telegram.enabled:
@@ -1264,22 +1268,19 @@ class TradingBot:
 
             # Hardforce some High Volume settings if aggressive mode is ON (same as init)
             if self.aggressive_mode:
-                 # FIX: RSI 55/45 was too loose. 30/70 is too strict.
-                 # COMPROMISE: 35/65 for 5m Timeframe (Active but Safe)
-                 
-                 base_config["rsi_oversold"] = 35  # Buy @ 35 (Standard aggressive)
-                 base_config["rsi_overbought"] = 65 # Sell @ 65
-                 
-                 # Enable shorts for scalping (both directions profit)
+                 # MATCH __init__: RSI 40/60, min_rr 0.8
+                 base_config["rsi_oversold"] = 40
+                 base_config["rsi_overbought"] = 60
+                 base_config["min_rr_ratio"] = 0.8
                  self.enable_shorts = True
 
             self.mean_reversion = MeanReversionStrategy({
                 "rsi_oversold": base_config.get("rsi_oversold", 40),
                 "rsi_overbought": base_config.get("rsi_overbought", 60),
                 "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-                "min_rr_ratio": base_config.get("min_rr_ratio", 1.2),
+                "min_rr_ratio": 0.8,  # HARDCODED
                 "use_trend_filter": False,
-                "use_volatility_filter": False,  # Vypnuto - blokuje signály
+                "use_volatility_filter": False,
                 "use_volume_filter": False,
                 "use_session_filter": False,
             })

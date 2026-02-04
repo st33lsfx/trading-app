@@ -908,32 +908,34 @@ def show_metrics():
     # --- SMART SENTIMENT PANEL (NEW) ---
     st.markdown("### 🧠 Smart Sentiment Analysis")
     
-    # Get sentiment data
-    if hasattr(current_bot, 'smart_analyst'):
+    # Get sentiment data safely
+    smart_analyst = getattr(current_bot, 'smart_analyst', None)
+    
+    if smart_analyst is not None:
         try:
-            is_safe, msg = current_bot.smart_analyst.get_market_sentiment()
-        except:
-            is_safe, msg = True, "Initializing..."
+            is_safe, msg = smart_analyst.get_market_sentiment()
+        except Exception as e:
+            is_safe, msg = True, f"Error: {str(e)[:30]}"
         
         s_col1, s_col2 = st.columns([1, 2])
         
         with s_col1:
             # VIX Gauge equivalent
-            sentiment_color = "#00d26a" if is_safe else "#ff4757"
+            sentiment_color = "#00ff88" if is_safe else "#ff00aa"  # Neon colors
             sentiment_icon = "😌" if is_safe else "😱"
             st.markdown(f"""
             <div style="
-                background: linear-gradient(145deg, #1e2530 0%, {sentiment_color}20 100%);
+                background: linear-gradient(145deg, #0a0f1c 0%, {sentiment_color}15 100%);
                 border: 1px solid {sentiment_color}40;
-                border-radius: 12px;
-                padding: 16px;
+                border-radius: 16px;
+                padding: 24px;
                 text-align: center;
             ">
-                <div style="font-size: 2.5rem; margin-bottom: 8px;">{sentiment_icon}</div>
-                <div style="color: {sentiment_color}; font-weight: 700; font-size: 1.2rem;">
+                <div style="font-size: 3rem; margin-bottom: 12px;">{sentiment_icon}</div>
+                <div style="color: {sentiment_color}; font-weight: 700; font-size: 1.3rem; text-shadow: 0 0 20px {sentiment_color}40;">
                     {msg}
                 </div>
-                <div style="color: #94a3b8; font-size: 0.8rem; margin-top: 4px;">Global Market Sentiment</div>
+                <div style="color: #8892a6; font-size: 0.8rem; margin-top: 8px;">Global Market Sentiment</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -941,9 +943,12 @@ def show_metrics():
             st.info("""
             **Smart Analyza Aktiv:**
             - 📊 **Analyst Check**: Yahoo Finance doporučení (Buy/Sell).
-            - 🌍 **Global Filter**: Pokud VIX > 25 (Panika), nákupy jsou pozastaveny.
+            - 🌍 **Global Filter**: Pokud VIX > 30 (Panika), nákupy jsou pozastaveny.
             - 🔎 **Discovery**: Aktivně vyhledává nové příležitosti s ratingem "Strong Buy".
             """)
+    else:
+        # Smart analyst not initialized
+        st.warning("⚠️ Smart Analyst není aktivní. Zkontrolujte připojení k API.")
     
     st.divider()
     
