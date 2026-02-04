@@ -238,42 +238,46 @@ class MeanReversionStrategy:
         # =============================================
 
         potential_signal = None
+        base_confidence = 0.6
 
         # Tolerance pro BB dotek (0.3% = cena může být mírně nad/pod BB)
         bb_tolerance = 0.003  # 0.3%
         bb_lower_with_tolerance = bb_lower * (1 + bb_tolerance)
         bb_upper_with_tolerance = bb_upper * (1 - bb_tolerance)
+        
+        # === R:R GUARANTEED CALCULATION ===
+        # SL = ATR × 2.0, TP = ATR × 4.0 → R:R = 1:2
+        sl_distance = atr * self.atr_sl_mult  # Default 2.0
+        tp_distance = atr * 4.0  # Guarantee 1:2 R:R
 
         # BUY SIGNAL: Cena blízko spodní BB + RSI oversold
         if row['Low'] <= bb_lower_with_tolerance and rsi < self.rsi_oversold:
             potential_signal = "BUY"
             base_confidence = 0.6 + (self.rsi_oversold - rsi) / 100
-            sl = current_price - (atr * self.atr_sl_mult)
-            tp = bb_mid
+            sl = current_price - sl_distance
+            tp = current_price + tp_distance  # ATR-based, NOT bb_mid!
 
         # SELL SIGNAL: Cena blízko horní BB + RSI overbought
         elif row['High'] >= bb_upper_with_tolerance and rsi > self.rsi_overbought:
             potential_signal = "SELL"
             base_confidence = 0.6 + (rsi - self.rsi_overbought) / 100
-            sl = current_price + (atr * self.atr_sl_mult)
-            tp = bb_mid
+            sl = current_price + sl_distance
+            tp = current_price - tp_distance  # ATR-based, NOT bb_mid!
         
         # =============================================
         # FALLBACK: RSI-only signal without BB requirement
         # =============================================
-        # If RSI is in oversold/overbought zone but no BB touch, still trade
-        # This fixes the "dead zone" where RSI 25-40 was ignored
-        elif rsi < 35:  # Extended from 25 - covers RSI 25-35 zone
+        elif rsi < 35:  # Oversold zone
             potential_signal = "BUY"
-            base_confidence = 0.65 + (35 - rsi) / 100  # Lower confidence without BB
-            sl = current_price - (atr * self.atr_sl_mult * 1.2)  # Slightly wider SL
-            tp = current_price + (atr * 1.5)  # Modest TP
+            base_confidence = 0.55 + (35 - rsi) / 100
+            sl = current_price - (sl_distance * 1.2)  # Slightly wider
+            tp = current_price + tp_distance
         
-        elif rsi > 65:  # Extended from 75 - covers RSI 65-75 zone
+        elif rsi > 65:  # Overbought zone
             potential_signal = "SELL"
-            base_confidence = 0.65 + (rsi - 65) / 100
-            sl = current_price + (atr * self.atr_sl_mult * 1.2)
-            tp = current_price - (atr * 1.5)
+            base_confidence = 0.55 + (rsi - 65) / 100
+            sl = current_price + (sl_distance * 1.2)  # Slightly wider
+            tp = current_price - tp_distance  # ATR×4 for 1:2 R:R
 
         # =============================================
         # APPLY FILTERS
