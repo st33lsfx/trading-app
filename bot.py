@@ -9,6 +9,7 @@ from strategy import Strategy
 from mean_reversion_strategy import MeanReversionStrategy
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
+from smart_analysis import get_smart_analyst
 
 load_dotenv()
 
@@ -85,6 +86,7 @@ class TradingBot:
         
         # Merging Learned Params with Strategy Config
         # Prioritize learned params, but fall back to strategy_config (user/backtest settings)
+        self.smart_analyst = get_smart_analyst()
         # instead of hardcoded conservative defaults.
         
         base_config = self.strategy_config.copy()
@@ -576,13 +578,57 @@ class TradingBot:
         best = [c for _, c in scored]
 
         # Mix: 60% best, 30% exploration, 10% fill
-        best_n = max(1, int(max_items * 0.6))
-        explore_n = max(1, int(max_items * 0.3))
+        # For Small Accounts: Be MUCH more conservative with exploration
+        if getattr(self, 'small_account_mode', False):
+             # 80% Best, 10% Exploration, 10% Fill
+             best_n = max(1, int(max_items * 0.8))
+             explore_n = max(1, int(max_items * 0.1)) # Only ~2 new assets
+        else:
+             # Standard: 60% / 30% / 10%
+             best_n = max(1, int(max_items * 0.6))
+             explore_n = max(1, int(max_items * 0.3))
+             
         fill_n = max_items - best_n - explore_n
 
         watchlist = []
         watchlist.extend(best[:best_n])
-        watchlist.extend(unexplored[:explore_n])
+        
+        # Smart Exploration: Prioritize unexplored assets with good Analyst Ratings
+        smart_unexplored = []
+        regular_unexplored = []
+        
+        # Only do this if we have the smart analyst loaded
+        if hasattr(self, 'smart_analyst') and self.broker == "capital":
+            for c in unexplored:
+                # Basic pre-filter to save API calls
+                yf = c.get('yf', '')
+                if not yf or "USD" in yf: # Skip forex/crypto for heavy analyst check (mostly stocks)
+                     regular_unexplored.append(c)
+                     continue
+                     
+                try:
+                    # Quick check (cached)
+                    rating = self.smart_analyst.get_analyst_rating(yf)
+                    if rating.get('score', 0) > 0.5: # Buy/Strong Buy
+                        smart_unexplored.append(c)
+                    else:
+                        regular_unexplored.append(c)
+                except:
+                    regular_unexplored.append(c)
+        else:
+             regular_unexplored = unexplored
+
+        # Add Smart Picks first
+        needed = explore_n
+        if smart_unexplored:
+             self.log(f"🔎 Discovery: Found {len(smart_unexplored)} promising new assets!")
+             take = min(len(smart_unexplored), needed)
+             watchlist.extend(smart_unexplored[:take])
+             needed -= take
+             
+        # Fill rest with random exploration
+        if needed > 0 and regular_unexplored:
+             watchlist.extend(regular_unexplored[:needed])
 
         # Fill remaining from rest of pool
         remaining = [c for c in filtered if c not in watchlist]
@@ -875,6 +921,32 @@ class TradingBot:
                 return False
             # ========================================
             
+            # ========================================
+            # SMART CHECK (New Feature)
+            # ========================================
+            # 1. Market Sentiment (Panic Check)
+            is_safe, msg = self.smart_analyst.get_market_sentiment()
+            if not is_safe:
+                self.log(f"⚠️ Market Sentiment Unsafe: {msg}. Skipping trade.")
+                return False
+                
+            # 2. Analyst Ratings (Yahoo Finance)
+            # Only check for priority tickers or stocks to save API calls
+            if "USD" not in yf_ticker and "=" not in yf_ticker: # Primarily for Stocks
+                rating = self.smart_analyst.get_analyst_rating(yf_ticker)
+                score = rating.get('score', 0)
+                rec = rating.get('recommendation', 'none')
+                
+                # VETO if analysts say SELL
+                if score < -0.5: # Sell/Strong Sell
+                    self.log(f"🚫 Analyst VETO for {yf_ticker}: {rec} (Score {score})")
+                    return False
+                
+                # BOOST confidence if Strong Buy
+                if score > 0.8:
+                    self.log(f"⭐ Analyst STRONG BUY for {yf_ticker}")
+            # ========================================
+
             if signal in ["BUY", "SELL"]:
                 # Auto-toggle shorts based on learning
                 if signal == "SELL" and not getattr(self, "enable_shorts", False):
