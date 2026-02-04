@@ -72,6 +72,10 @@ class MeanReversionStrategy:
         # EMA pro trend
         df['ema_50'] = EMAIndicator(df['Close'], window=50).ema_indicator()
         df['ema_20'] = EMAIndicator(df['Close'], window=20).ema_indicator()
+        
+        # ADX pro detekci trendu (< 25 = ranging, > 25 = trending)
+        adx_indicator = ADXIndicator(df['High'], df['Low'], df['Close'], window=14)
+        df['adx'] = adx_indicator.adx()
 
         # Volume MA (pokud máme volume data)
         if 'Volume' in df.columns and df['Volume'].sum() > 0:
@@ -149,6 +153,19 @@ class MeanReversionStrategy:
                     reasons.append(f"⚠️ Counter-trend SELL (extreme RSI)")
             else:
                 reasons.append(f"✅ Trend aligned ({trend})")
+
+        # 1.5 ADX FILTER (CRITICAL for mean reversion!)
+        # ADX < 25 = ranging market (GOOD for mean reversion)
+        # ADX > 25 = trending market (BAD - skip trade)
+        adx = row.get('adx', 0)
+        if adx > 30:
+            passed = False
+            reasons.append(f"❌ Strong trend (ADX {adx:.1f}) - mean reversion risky")
+        elif adx > 25:
+            # Warning but still allow with lower confidence
+            reasons.append(f"⚠️ Trend forming (ADX {adx:.1f})")
+        else:
+            reasons.append(f"✅ Ranging market (ADX {adx:.1f})")
 
         # 2. VOLATILITY FILTER
         if self.use_volatility_filter:
