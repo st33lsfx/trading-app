@@ -993,7 +993,15 @@ class TradingBot:
 
             df = strategy.fetch_data(period=data_period, interval=data_interval)
             if df.empty:
-                self.log(f"[{yf_ticker}] No data from yfinance - skipping")
+                # Still show in scanner with "NO DATA" status
+                self.scan_results.append({
+                    "Time": time.strftime("%H:%M:%S"),
+                    "Ticker": yf_ticker,
+                    "Action": "SKIP",
+                    "RSI": 0,
+                    "Reason": "No data from yfinance",
+                    "Price": 0,
+                })
                 return False
 
             # Vyber strategii podle nastavení
