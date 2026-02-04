@@ -17,9 +17,13 @@ MAX_POSITIONS = 3          # Méně pozic = nižší risk
 TRADE_AMOUNT_CZK = 100     # ~$4 per trade
 SL_PCT = 0.01              # 1% SL
 TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
-MAX_SCAN_PER_CYCLE = 30    # Méně assetů = kvalitnější signály
+MAX_SCAN_PER_CYCLE = 40    # Více assetů = více příležitostí
 INTERVAL = "1h"            # Hodinový timeframe (stabilnější)
 PERIOD = "1mo"
+
+# Learning-based watchlist
+TARGET_WATCHLIST_SIZE = 20
+MIN_TRADES_FOR_RANK = 3
 
 from capital_client import CapitalClient
 
@@ -459,6 +463,93 @@ class TradingBot:
         
         return False
 
+    def _dedupe_candidates(self, items):
+        """Deduplicate candidate tickers by epic/yf."""
+        seen = set()
+        unique = []
+        for item in items:
+            epic = item.get("epic") or item.get("t212") or ""
+            key = epic or item.get("yf", "")
+            if not key:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return unique
+
+    def _build_candidate_pool(self):
+        """Build candidate pool from priority and market categories."""
+        candidates = []
+        if hasattr(self, "priority_tickers"):
+            candidates.extend(self.priority_tickers)
+
+        # Add from market categories (Capital only)
+        if hasattr(self, "market_categories") and hasattr(self, "active_categories"):
+            for cat in self.active_categories:
+                for item in self.market_categories.get(cat, []):
+                    candidates.append(item)
+
+        return self._dedupe_candidates(candidates)
+
+    def _get_dynamic_watchlist(self, max_items=TARGET_WATCHLIST_SIZE):
+        """
+        Build a learning-based watchlist:
+        - Best performers from learning engine
+        - Some unexplored tickers (exploration)
+        """
+        candidates = self._build_candidate_pool()
+        if not candidates:
+            return []
+
+        # Filter blacklisted
+        filtered = []
+        for c in candidates:
+            epic = c.get("epic") or c.get("t212") or ""
+            yf = c.get("yf", "")
+            if self.is_blacklisted(epic) or (yf and self.is_blacklisted(yf)):
+                continue
+            filtered.append(c)
+
+        if not filtered:
+            return []
+
+        # If no learning engine, fallback to first N
+        if not hasattr(self, "learning_engine"):
+            return filtered[:max_items]
+
+        stats = self.learning_engine.ticker_stats
+
+        # Score candidates by learning stats
+        scored = []
+        unexplored = []
+        for c in filtered:
+            epic = c.get("epic") or c.get("t212") or ""
+            st = stats.get(epic)
+            if not st or st.get("trades", 0) < MIN_TRADES_FOR_RANK:
+                unexplored.append(c)
+                continue
+            score = st.get("profit_factor", 0) * 100 + st.get("win_rate", 0)
+            scored.append((score, c))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best = [c for _, c in scored]
+
+        # Mix: 60% best, 30% exploration, 10% fill
+        best_n = max(1, int(max_items * 0.6))
+        explore_n = max(1, int(max_items * 0.3))
+        fill_n = max_items - best_n - explore_n
+
+        watchlist = []
+        watchlist.extend(best[:best_n])
+        watchlist.extend(unexplored[:explore_n])
+
+        # Fill remaining from rest of pool
+        remaining = [c for c in filtered if c not in watchlist]
+        watchlist.extend(remaining[:fill_n])
+
+        return watchlist[:max_items]
+
     def scan_all_markets(self):
         """Dynamically fetch all markets from Capital.com."""
         self.log("Starting Dynamic Market Scan... (This may take a moment)")
@@ -595,8 +686,13 @@ class TradingBot:
         
         elif self.broker == "capital":
             # Small account mode: Use curated priority list filtered by active categories
-            if getattr(self, 'small_account_mode', False) and hasattr(self, 'priority_tickers'):
-                for pt in self.priority_tickers:
+            if getattr(self, 'small_account_mode', False):
+                # Learning-based watchlist (best + exploration)
+                dynamic_list = self._get_dynamic_watchlist(TARGET_WATCHLIST_SIZE)
+                if not dynamic_list and hasattr(self, 'priority_tickers'):
+                    dynamic_list = self.priority_tickers
+
+                for pt in dynamic_list:
                     # Filter by active categories
                     pt_cat = pt.get('cat', 'Forex')
                     if pt_cat not in self.active_categories:
@@ -612,7 +708,7 @@ class TradingBot:
                         "expected_pf": pt.get('pf', 1.0)
                     })
                     priority_added.add(pt['epic'])
-                
+
                 cats_str = ", ".join(self.active_categories)
                 self.log(f"💰 Small Account Mode: {len(self.open_instruments)} instruments ({cats_str})")
             else:
@@ -740,6 +836,11 @@ class TradingBot:
             # ========================================
             
             if signal in ["BUY", "SELL"]:
+                # Auto-toggle shorts based on learning
+                if signal == "SELL" and not getattr(self, "enable_shorts", False):
+                    self.log(f"[{yf_ticker}] SHORT disabled by learning engine, skipping")
+                    return False
+
                 # Check Limit
                 positions = self.client.get_positions()
                 max_pos = getattr(self, 'max_positions', MAX_POSITIONS)

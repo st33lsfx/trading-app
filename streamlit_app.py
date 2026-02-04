@@ -1805,7 +1805,7 @@ with tabs[6]:
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h3 style="color: #f8fafc; margin: 0;">🤖 Self-Learning Dashboard</h3>
-        <p style="color: #64748b; font-size: 0.9rem; margin-top: 4px;">Bot se učí z každého obchodu a automaticky optimalizuje strategii</p>
+        <p style="color: #64748b; font-size: 0.9rem; margin-top: 4px;">Kompletní přehled všeho co bot dělá a proč</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1874,6 +1874,109 @@ with tabs[6]:
                 <div style="color: #64748b; font-size: 0.75rem; text-transform: uppercase;">Auto-blacklisted</div>
             </div>
             """, unsafe_allow_html=True)
+        
+        # LONG vs SHORT performance
+        long_stats = summary.get("long_stats", {})
+        short_stats = summary.get("short_stats", {})
+        long_wr = long_stats.get("win_rate", 0)
+        short_wr = short_stats.get("win_rate", 0)
+        long_trades = long_stats.get("trades", 0)
+        short_trades = short_stats.get("trades", 0)
+        shorts_enabled = learned_params.get("enable_shorts", True)
+
+        st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.markdown(f"""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 16px; text-align: center;">
+                <div style="color: #00d26a; font-size: 1.4rem; font-weight: 700;">{long_wr:.0f}%</div>
+                <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">LONG Win Rate</div>
+                <div style="color: #94a3b8; font-size: 0.7rem;">{long_trades} trades</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with c2:
+            st.markdown(f"""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 16px; text-align: center;">
+                <div style="color: #ff4757; font-size: 1.4rem; font-weight: 700;">{short_wr:.0f}%</div>
+                <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">SHORT Win Rate</div>
+                <div style="color: #94a3b8; font-size: 0.7rem;">{short_trades} trades</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with c3:
+            status_color = "#00d26a" if shorts_enabled else "#ff4757"
+            status_text = "ENABLED" if shorts_enabled else "DISABLED"
+            st.markdown(f"""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 16px; text-align: center;">
+                <div style="color: {status_color}; font-size: 1.4rem; font-weight: 700;">{status_text}</div>
+                <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">Auto SHORT Toggle</div>
+                <div style="color: #94a3b8; font-size: 0.7rem;">Learning engine</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+        
+        # =====================================================
+        # KOMPLETNÍ PŘEHLED - co se stalo
+        # =====================================================
+        overview_tabs = st.tabs(["📋 Activity Log", "📊 Aktuální Watchlist", "🚫 Blacklist"])
+        
+        with overview_tabs[0]:
+            activity_log = getattr(learning_engine, 'activity_log', [])
+            if activity_log:
+                st.markdown("**Chronologický log událostí (nejnovější nahoře)**")
+                for e in reversed(activity_log[-80:]):
+                    t = e.get('type', '')
+                    msg = e.get('message', '')
+                    tm = e.get('time', '')
+                    if t == 'trade':
+                        color = "#00d26a" if "PnL $+" in msg else "#ff4757"
+                    elif t == 'blacklist':
+                        color = "#ff4757"
+                    elif t == 'params':
+                        color = "#3b82f6"
+                    else:
+                        color = "#94a3b8"
+                    st.markdown(f"<div style='padding: 8px; border-left: 4px solid {color}; margin-bottom: 8px; background: #1e2530; border-radius: 6px;'><span style='color: #64748b; font-size: 0.8rem;'>{tm}</span> <span style='color: {color};'>{msg}</span></div>", unsafe_allow_html=True)
+            else:
+                st.info("Zatím žádné události. Bot musí udělat obchody.")
+        
+        with overview_tabs[1]:
+            watchlist = []
+            if hasattr(current_bot, '_get_dynamic_watchlist'):
+                try:
+                    watchlist = current_bot._get_dynamic_watchlist(50)
+                except Exception:
+                    watchlist = getattr(current_bot, 'open_instruments', []) or getattr(current_bot, 'priority_tickers', [])[:20]
+            else:
+                watchlist = getattr(current_bot, 'open_instruments', []) or getattr(current_bot, 'priority_tickers', [])[:20]
+            
+            if watchlist:
+                st.markdown(f"**Bot právě skenuje {len(watchlist)} assetů**")
+                names = [str(w.get('epic') or w.get('yf') or w.get('t212') or w) for w in watchlist]
+                st.markdown(", ".join(names) if isinstance(names[0], str) else str(names))
+                df_wl = pd.DataFrame([{"Epic": w.get('epic',''), "YF": w.get('yf',''), "Název": w.get('name','')} for w in watchlist[:30]])
+                st.dataframe(df_wl, use_container_width=True, hide_index=True)
+            else:
+                st.info("Watchlist bude k dispozici po startu bota.")
+        
+        with overview_tabs[2]:
+            bl_manual = getattr(current_bot, 'ticker_blacklist', [])
+            bl_auto = learning_engine.get_blacklisted_tickers()
+            bl_auto_reasons = {t: learning_engine.ticker_stats.get(t, {}).get('blacklist_reason', '') for t in bl_auto}
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Manuální blacklist**")
+                st.markdown(", ".join(bl_manual[:30]) if bl_manual else "—")
+            with col2:
+                st.markdown("**Auto-blacklist (důvod)**")
+                for t, r in list(bl_auto_reasons.items())[:15]:
+                    st.markdown(f"- **{t}**: {r}")
+                if not bl_auto:
+                    st.markdown("—")
         
         st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
         

@@ -38,6 +38,15 @@ class LearningEngine:
             "auto_blacklisted": False,
             "blacklist_reason": None
         })
+
+        # Direction performance (BUY vs SELL)
+        self.direction_stats = {
+            "BUY": {"trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0},
+            "SELL": {"trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0},
+        }
+
+        # Activity log - vše co se stalo (max 300 záznamů)
+        self.activity_log = []
         
         # Strategy parameters that can be learned
         self.learned_params = {
@@ -94,6 +103,8 @@ class LearningEngine:
                     self.ticker_stats[ticker].update(stats)
                 
                 self.learned_params.update(data.get("learned_params", {}))
+                self.direction_stats.update(data.get("direction_stats", {}))
+                self.activity_log = data.get("activity_log", [])[-300:]  # Keep last 300
                 print(f"✅ Learning Engine: Loaded data for {len(self.ticker_stats)} tickers")
         except Exception as e:
             print(f"⚠️ Learning Engine: Could not load data: {e}")
@@ -104,6 +115,8 @@ class LearningEngine:
             data = {
                 "ticker_stats": dict(self.ticker_stats),
                 "learned_params": self.learned_params,
+                "direction_stats": self.direction_stats,
+                "activity_log": self.activity_log[-300:],
                 "last_updated": datetime.utcnow().isoformat()
             }
             
@@ -150,6 +163,18 @@ class LearningEngine:
         else:
             stats["losses"] += 1
             stats["consecutive_losses"] += 1
+
+        # Update direction stats
+        direction = direction.upper()
+        if direction not in self.direction_stats:
+            self.direction_stats[direction] = {"trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0}
+        dir_stats = self.direction_stats[direction]
+        dir_stats["trades"] += 1
+        dir_stats["total_pnl"] += pnl
+        if pnl > 0:
+            dir_stats["wins"] += 1
+        else:
+            dir_stats["losses"] += 1
         
         # Calculate metrics
         if stats["trades"] > 0:
@@ -173,6 +198,9 @@ class LearningEngine:
         
         # Check for auto-blacklist
         self._evaluate_ticker(ticker)
+
+        # Activity log
+        self._log_activity("trade", f"{ticker} {direction} PnL ${pnl:+.2f}")
         
         # Save data
         self._save_data()
@@ -182,6 +210,16 @@ class LearningEngine:
         print(f"📊 Learning: {emoji} {ticker} {direction} PnL: ${pnl:.2f} | "
               f"WR: {stats['win_rate']:.0f}% | PF: {stats['profit_factor']:.2f}")
     
+    def _log_activity(self, event_type: str, message: str):
+        """Append to activity log."""
+        self.activity_log.append({
+            "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
+            "type": event_type,
+            "message": message
+        })
+        if len(self.activity_log) > 300:
+            self.activity_log = self.activity_log[-300:]
+
     def _evaluate_ticker(self, ticker: str):
         """Evaluate if ticker should be auto-blacklisted."""
         stats = self.ticker_stats[ticker]
@@ -208,6 +246,7 @@ class LearningEngine:
         if reasons:
             stats["auto_blacklisted"] = True
             stats["blacklist_reason"] = "; ".join(reasons)
+            self._log_activity("blacklist", f"{ticker}: {stats['blacklist_reason']}")
             print(f"🚫 AUTO-BLACKLIST: {ticker} - {stats['blacklist_reason']}")
     
     def is_blacklisted(self, ticker: str) -> tuple:
@@ -275,19 +314,32 @@ class LearningEngine:
             short_wr = short_stats["win_rate"]
             if short_wr < 35:
                 self.learned_params["enable_shorts"] = False
+                self._log_activity("params", "SHORT vypnuto (WR " + f"{short_wr:.0f}%)")
                 print("⚙️ Disabling SHORT trades (poor performance)")
             elif short_wr > 50 and not self.learned_params["enable_shorts"]:
                 self.learned_params["enable_shorts"] = True
+                self._log_activity("params", "SHORT zapnuto (WR " + f"{short_wr:.0f}%)")
                 print("⚙️ Re-enabling SHORT trades (improved performance)")
+
+        if overall_wr < 40 or overall_wr > 60:
+            self._log_activity("params", f"Optimalizace: WR={overall_wr:.0f}% → RSI={self.learned_params['rsi_oversold']}")
         
         print(f"\nUpdated params: {self.learned_params}")
         self._save_data()
     
     def _get_direction_stats(self, direction: str) -> dict:
         """Get aggregated stats for a direction (BUY/SELL)."""
-        # This would need trade-level tracking to work properly
-        # For now, return placeholder
-        return {"trades": 0, "win_rate": 50.0}
+        stats = self.direction_stats.get(direction.upper(), {"trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0})
+        trades = stats.get("trades", 0)
+        wins = stats.get("wins", 0)
+        win_rate = (wins / trades) * 100 if trades > 0 else 0.0
+        return {
+            "trades": trades,
+            "wins": wins,
+            "losses": stats.get("losses", 0),
+            "win_rate": win_rate,
+            "total_pnl": stats.get("total_pnl", 0.0),
+        }
     
     def get_best_tickers(self, n: int = 5) -> list:
         """Get top N performing tickers."""
@@ -319,6 +371,8 @@ class LearningEngine:
         total_wins = sum(s["wins"] for s in self.ticker_stats.values())
         total_pnl = sum(s["total_pnl"] for s in self.ticker_stats.values())
         blacklisted = len(self.get_blacklisted_tickers())
+        long_stats = self._get_direction_stats("BUY")
+        short_stats = self._get_direction_stats("SELL")
         
         return {
             "total_tickers_tracked": len(self.ticker_stats),
@@ -327,6 +381,8 @@ class LearningEngine:
             "total_pnl": total_pnl,
             "auto_blacklisted_count": blacklisted,
             "best_tickers": self.get_best_tickers(3),
+            "long_stats": long_stats,
+            "short_stats": short_stats,
             "learned_params": self.learned_params
         }
     
