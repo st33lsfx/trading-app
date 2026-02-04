@@ -4,7 +4,15 @@ import os
 import time
 from bot import TradingBot
 from backtest import Backtester
-from economic_data import get_economic_calendar, is_market_volatile_today
+try:
+    from economic_data import get_economic_calendar, is_market_volatile_today
+except (ImportError, KeyError) as e:
+    print(f"⚠️ Error importing economic_data: {e}")
+    # Fallback functions to prevent crash
+    def get_economic_calendar(): 
+        return pd.DataFrame()
+    def is_market_volatile_today(): 
+        return False, "Data Unavailable"
 
 # Page Config
 st.set_page_config(
