@@ -1331,13 +1331,103 @@ class TradingBot:
         for i, item in enumerate(subset):
             if not self.is_running:
                 break
-            ticker = item.get('yf', item.get('epic', 'UNKNOWN'))
-            self.log(f"[{i+1}/{len(subset)}] Processing {ticker}...")
+            # ticker = item.get('yf', item.get('epic', 'UNKNOWN'))
+            # self.log(f"[{i+1}/{len(subset)}] Processing {ticker}...")
             self.process_instrument(item)
             time.sleep(1)
 
 
-    def start_loop(self):
+
+    def monitor_positions(self):
+        """
+        Check open positions and apply Trailing Stop logic.
+        Logic:
+        - If Profit > 1.0 ATR (0.5 Risk): Move SL to Break Even.
+        - If Profit > 1.5 ATR (0.75 Risk): Lock 0.5 ATR profit.
+        """
+        if self.broker != "capital": 
+            return # Only supported for Capital for now
+
+        try:
+            positions = self.client.get_positions()
+            if not positions: return
+
+            for pos in positions:
+                try:
+                    epic = pos.get('epic')
+                    direction = pos.get('direction')
+                    entry_level = pos.get('level')
+                    current_sl = pos.get('stopLevel')
+                    current_tp = pos.get('profitLevel')
+                    deal_id = pos.get('dealId')
+                    
+                    # Fetch live price
+                    price_info = self.client.get_prices(epic)
+                    snapshot = price_info.get('snapshot', {})
+                    bid = snapshot.get('bid')
+                    offer = snapshot.get('offer')
+                    
+                    if not bid or not offer: continue
+                    
+                    current_price = bid if direction == "BUY" else offer
+                    
+                    # Calculate Profit Distance
+                    if direction == "BUY":
+                        profit_dist = current_price - entry_level
+                        risk_dist = entry_level - current_sl if current_sl else 0
+                    else:
+                        profit_dist = entry_level - current_price
+                        risk_dist = current_sl - entry_level if current_sl else 0
+                        
+                    # Estimate ATR from Risk (assuming SL was set to 2*ATR)
+                    # If no SL, fallback to 0.5% price
+                    if risk_dist > 0:
+                        atr_est = risk_dist / 2.0
+                    else:
+                         atr_est = entry_level * 0.005 # Fallback
+                    
+                    # === TRAILING LOGIC ===
+                    
+                    # 1. BREAK EVEN: If Profit > 1.0 ATR (0.5 * Risk)
+                    # Check if SL is already at or better than BE
+                    is_sl_at_be = (direction == "BUY" and current_sl >= entry_level) or \
+                                  (direction == "SELL" and current_sl <= entry_level)
+                    
+                    new_sl = None
+                    reason = ""
+
+                    # Case A: Move to Break Even
+                    if profit_dist > atr_est and not is_sl_at_be:
+                        new_sl = entry_level
+                        reason = "Break Even"
+                    
+                    # Case B: Lock Profit (Trailing) -> If Profit > 1.5 ATR, lock 0.5 ATR
+                    elif profit_dist > (atr_est * 1.5):
+                        # Desired SL = Entry + 0.5 ATR
+                        if direction == "BUY":
+                            desired_sl = entry_level + (atr_est * 0.5)
+                            if current_sl < desired_sl:
+                                new_sl = desired_sl
+                                reason = "Lock Profit (+0.5 ATR)"
+                        else:
+                            desired_sl = entry_level - (atr_est * 0.5)
+                            if current_sl > desired_sl:
+                                new_sl = desired_sl
+                                reason = "Lock Profit (+0.5 ATR)"
+                    
+                    # Execute Update
+                    if new_sl:
+                        self.log(f"🛡️ Trailing Stop: {epic} -> {reason}")
+                        success = self.client.update_position(deal_id, stop_level=new_sl)
+                        if success:
+                            self.log(f"✅ SL Updated to {new_sl}")
+                        else:
+                            self.log(f"❌ Failed to update SL")
+
+                except Exception as e:
+                    pass # Silently ignore errors in monitoring to not spam logs
+        except Exception:
+            pass
         """Starts the main loop in a thread."""
         if self.is_running: return
         self.is_running = True
@@ -1346,12 +1436,21 @@ class TradingBot:
         def run():
             try:
                 self.initialize_data()
+                last_monitor_time = 0
                 while self.is_running:
                     self.update_cache() # Keep UI fresh
                     self.scan_cycle()
-                    for _ in range(30): # Faster loop for scalping (30s)
+                    
+                    # Faster loop for scalping monitors (e.g. 5s per check)
+                    for _ in range(6): # 6 * 5s = 30s cycle
                         if not self.is_running: break
-                        time.sleep(1)
+                        
+                        # Monitor positions (Trailing Stop)
+                        if time.time() - last_monitor_time > 5:
+                            self.monitor_positions()
+                            last_monitor_time = time.time()
+                            
+                        time.sleep(5)
             except Exception as e:
                 self.log(f"CRITICAL THREAD ERROR: {e}")
             finally:

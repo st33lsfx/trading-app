@@ -626,6 +626,29 @@ with c2:
 st.sidebar.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
 st.sidebar.divider()
 
+# --- TELEGRAM SETTINGS ---
+st.sidebar.markdown('<p style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">🔔 NOTIFICATIONS</p>', unsafe_allow_html=True)
+with st.sidebar.expander("Telegram Setup", expanded=False):
+    tg_token = st.text_input("Bot Token", value=os.getenv("TELEGRAM_BOT_TOKEN", ""), type="password")
+    tg_chat_id = st.text_input("Chat ID", value=os.getenv("TELEGRAM_CHAT_ID", ""))
+    
+    if st.button("Save & Test"):
+        if tg_token and tg_chat_id:
+            from telegram_notifier import get_telegram_notifier
+            notifier = get_telegram_notifier(tg_token, tg_chat_id)
+            if notifier.send_message("🔔 <b>Bot Connected!</b>\nTelegram notifications are now active."):
+                st.success("Test message sent!")
+                # Save to session state/update bot
+                if current_bot:
+                    current_bot.telegram = notifier
+                    current_bot.telegram.enabled = True
+            else:
+                st.error("Failed to send message. Check keys.")
+        else:
+            st.warning("Enter both Token and Chat ID")
+
+st.sidebar.divider()
+
 # --- Settings (Persistent per broker) ---
 st.sidebar.markdown(f"""
 <p style="color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">

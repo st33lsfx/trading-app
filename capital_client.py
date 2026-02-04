@@ -237,6 +237,22 @@ class CapitalClient:
             return result
         raise Exception("Order failed: No response from API")
 
+    def update_position(self, deal_id, stop_level=None, profit_level=None):
+        """Update SL/TP for an existing position."""
+        endpoint = f"{self.base_url}/api/v1/positions/{deal_id}"
+        data = {}
+        if stop_level is not None:
+            data["stopLevel"] = round(stop_level, 5)
+        if profit_level is not None:
+            data["profitLevel"] = round(profit_level, 5)
+            
+        if not data: return False
+        
+        response = self._safe_request("PUT", endpoint, json=data)
+        if response:
+            return True
+        return False
+
     def get_prices(self, epic):
         """Get live price for an epic."""
         endpoint = f"{self.base_url}/api/v1/markets/{epic}"
