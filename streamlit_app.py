@@ -154,8 +154,6 @@ st.markdown("""
         box-shadow: 0 0 15px rgba(0, 242, 234, 0.15);
     }
     
-</style>
-    
     .status-badge.stopped {
         background: rgba(255, 71, 87, 0.15);
         border: 1px solid rgba(255, 71, 87, 0.3);
@@ -347,43 +345,26 @@ st.markdown("""
 
     /* === IMPROVED CARDS === */
     .info-card {
-        background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%);
-        border: 1px solid #2d3748;
-        border-radius: 16px;
-        padding: 20px;
-        margin-bottom: 16px;
-        transition: all 0.3s ease;
-    }
-
-    .info-card:hover {
-        border-color: #3b82f6;
-        box-shadow: 0 8px 32px rgba(59, 130, 246, 0.15);
-    }
-
-    .info-card-header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 16px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid #2d3748;
-    }
-
-    .info-card-icon {
-        width: 48px;
-        height: 48px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        background: rgba(30, 41, 59, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
-        font-size: 1.5rem;
+        padding: 16px;
+        margin-bottom: 16px;
     }
 
     .info-card-title {
         color: #f8fafc;
-        font-size: 1.1rem;
         font-weight: 600;
-        margin: 0;
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .info-card-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #00f2ea;
     }
 
     .info-card-subtitle {
