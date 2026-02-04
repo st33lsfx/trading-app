@@ -715,25 +715,22 @@ class TradingBot:
                              yf_ticker = f"{coin}-USD"
                              if self.is_blacklisted(yf_ticker):
                                  continue
-                    
-                    elif cat_name == "Indices":
-                        idx_map = {
-                            "US500": "^GSPC", "USTEch100": "^NDX", "US30": "^DJI",
-                            "DE40": "^GDAXI", "UK100": "^FTSE", "FR40": "^FCHI"
-                        }
-                        if epic in idx_map: yf_ticker = idx_map[epic]
-
+                        # Capital: BTCUSD -> YF: BTC-USD
+                        yf_ticker = f"{epic.replace('USD', '')}-USD"
                     elif cat_name == "Commodities":
-                        # Skip Gold (blacklisted)
-                        if self.is_blacklisted(epic):
-                            continue
-                        com_map = {
-                            "Silver": "SI=F", "Oil": "CL=F", "NaturalGas": "NG=F"
-                            # Gold removed - poor backtest results
-                        }
-                        if epic in com_map: yf_ticker = com_map[epic]
-                    
+                        # Basic mapping
+                        if "Gold" in name: yf_ticker = "GC=F"
+                        elif "Silver" in name: yf_ticker = "SI=F"
+                        elif "Oil" in name or "Brent" in name: yf_ticker = "BZ=F"
+                    elif cat_name == "Indices":
+                        if "US500" in name: yf_ticker = "^GSPC"
+                        elif "US30" in name: yf_ticker = "^DJI"
+                        elif "DE40" in name: yf_ticker = "^GDAXI"
+
                     if yf_ticker:
+                        # Skip blacklisted YF tickers
+                        if self.is_blacklisted(yf_ticker):
+                            continue
                         self.market_categories[cat_name].append({
                             'epic': epic,
                             'yf': yf_ticker,
@@ -742,10 +739,54 @@ class TradingBot:
                         
             except Exception as e:
                 self.log(f"Error scanning {cat_name}: {e}")
-        
+                
+            # FALLBACK: If API failed or found nothing, use Static List
+            if not self.market_categories.get(cat_name) and cat_name != "US Stocks":
+                self.log(f"⚠️ Using Fallback List for {cat_name}")
+                self.market_categories[cat_name] = self._get_fallback_markets(cat_name)
+
         # Log summary
         total = sum(len(v) for v in self.market_categories.values())
         self.log(f"Scan Complete. Total markets: {total} (Blacklisted excluded)")
+
+    def _get_fallback_markets(self, category):
+        """Static list of popular assets if dynamic scan fails."""
+        if category == "Forex":
+            return [
+                {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD"},
+                {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD"},
+                {"epic": "USDJPY", "yf": "USDJPY=X", "name": "USD/JPY"},
+                {"epic": "AUDUSD", "yf": "AUDUSD=X", "name": "AUD/USD"},
+                {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD"},
+                {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF"},
+                {"epic": "NZDUSD", "yf": "NZDUSD=X", "name": "NZD/USD"},
+                {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP"},
+                {"epic": "EURJPY", "yf": "EURJPY=X", "name": "EUR/JPY"},
+                {"epic": "GBPJPY", "yf": "GBPJPY=X", "name": "GBP/JPY"}
+            ]
+        elif category == "Crypto":
+            return [
+                {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin"},
+                {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum"},
+                {"epic": "LTCUSD", "yf": "LTC-USD", "name": "Litecoin"},
+                {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple"}
+            ]
+        elif category == "Commodities":
+            return [
+                {"epic": "Gold", "yf": "GC=F", "name": "Gold"},
+                {"epic": "Silver", "yf": "SI=F", "name": "Silver"},
+                {"epic": "Oil - US Crude", "yf": "CL=F", "name": "Crude Oil"},
+                {"epic": "Oil - Brent Crude", "yf": "BZ=F", "name": "Brent Oil"}
+            ]
+        elif category == "Indices":
+            return [
+                {"epic": "US500", "yf": "^GSPC", "name": "S&P 500"},
+                {"epic": "US30", "yf": "^DJI", "name": "Dow Jones"},
+                {"epic": "US100", "yf": "^NDX", "name": "Nasdaq 100"},
+                {"epic": "DE40", "yf": "^GDAXI", "name": "DAX 40"},
+                {"epic": "UK100", "yf": "^FTSE", "name": "FTSE 100"}
+            ]
+        return []
 
     def get_open_markets(self):
         self.open_instruments = []

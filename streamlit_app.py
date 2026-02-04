@@ -34,276 +34,131 @@ def get_secret(key, default=None):
         return os.getenv(key, default)
 
 # ============================================
-# CUSTOM CSS THEME - Professional Trading Look
+# CUSTOM CSS THEME - Premium "Quantum" Design
 # ============================================
 st.markdown("""
 <style>
-    /* === COLOR VARIABLES === */
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+    /* === VARIABLES === */
     :root {
-        --bg-primary: #0f1419;
-        --bg-secondary: #1a1f2e;
-        --bg-card: #1e2530;
-        --accent-green: #00d26a;
-        --accent-red: #ff4757;
-        --accent-blue: #3b82f6;
-        --accent-purple: #8b5cf6;
-        --accent-yellow: #fbbf24;
-        --text-primary: #f8fafc;
+        --bg-app: #0a0e14;
+        --bg-card: rgba(30, 41, 59, 0.4);
+        --bg-card-hover: rgba(45, 55, 75, 0.5);
+        --accent-primary: #00f2ea;
+        --accent-secondary: #ff0055;
+        --text-primary: #ffffff;
         --text-secondary: #94a3b8;
-        --border-color: #2d3748;
+        --border-glass: rgba(255, 255, 255, 0.08);
+        --shadow-glow: 0 0 20px rgba(0, 242, 234, 0.1);
     }
     
-    /* === MAIN CONTAINER === */
+    html, body, [class*="css"] {
+        font-family: 'Outfit', sans-serif;
+    }
+    
+    code, .stCodeBlock, [class*="stDataFrame"] {
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+
+    /* === MAIN BACKGROUND === */
     .stApp {
-        background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 50%, #0f1419 100%);
+        background-color: var(--bg-app);
+        background-image: 
+            radial-gradient(circle at 10% 20%, rgba(0, 242, 234, 0.03) 0%, transparent 40%),
+            radial-gradient(circle at 90% 80%, rgba(255, 0, 85, 0.03) 0%, transparent 40%);
     }
-    
-    /* === SIDEBAR STYLING === */
+
+    /* === SIDEBAR === */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1a1f2e 0%, #0f1419 100%);
-        border-right: 1px solid #2d3748;
+        background-color: rgba(10, 14, 20, 0.8) !important;
+        border-right: 1px solid var(--border-glass);
+        backdrop-filter: blur(12px);
     }
     
-    [data-testid="stSidebar"] .stMarkdown h1,
-    [data-testid="stSidebar"] .stMarkdown h2,
-    [data-testid="stSidebar"] .stMarkdown h3 {
-        color: #f8fafc !important;
-    }
-    
-    /* === METRIC CARDS === */
+    /* === METRIC CARDS (Glassmorphism) === */
     [data-testid="stMetric"] {
-        background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%);
-        border: 1px solid #2d3748;
+        background: var(--bg-card);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--border-glass);
         border-radius: 16px;
-        padding: 20px 24px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        padding: 24px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     
     [data-testid="stMetric"]:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+        border-color: rgba(255, 255, 255, 0.2);
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-glow);
     }
     
     [data-testid="stMetricLabel"] {
-        color: #94a3b8 !important;
-        font-size: 0.85rem !important;
+        color: var(--text-secondary) !important;
+        font-size: 0.8rem !important;
         font-weight: 500 !important;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 1px;
     }
     
     [data-testid="stMetricValue"] {
-        color: #f8fafc !important;
-        font-size: 1.8rem !important;
+        color: var(--text-primary) !important;
+        font-size: 2rem !important;
         font-weight: 700 !important;
+        text-shadow: 0 0 10px rgba(255,255,255,0.1);
     }
     
-    /* === TABS STYLING === */
+    /* === TABS === */
     .stTabs [data-baseweb="tab-list"] {
-        background: #1a1f2e;
-        border-radius: 12px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 16px;
         padding: 6px;
         gap: 8px;
+        border: 1px solid var(--border-glass);
     }
     
     .stTabs [data-baseweb="tab"] {
-        background: transparent;
-        border-radius: 8px;
-        color: #94a3b8;
+        border-radius: 12px;
+        color: var(--text-secondary);
         font-weight: 500;
-        padding: 10px 20px;
-        transition: all 0.2s ease;
-    }
-    
-    .stTabs [data-baseweb="tab"]:hover {
-        background: #252d3a;
-        color: #f8fafc;
+        padding: 8px 16px;
+        transition: all 0.2s;
     }
     
     .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%) !important;
-        color: white !important;
+        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        color: var(--accent-primary) !important;
+        text-shadow: 0 0 15px rgba(0, 242, 234, 0.4);
     }
     
-    /* === DATAFRAME / TABLES === */
+    /* === DATAFRAME === */
     [data-testid="stDataFrame"] {
+        border: 1px solid var(--border-glass) !important;
         border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid #2d3748;
-    }
-    
-    [data-testid="stDataFrame"] table {
-        background: #1e2530;
-    }
-    
-    [data-testid="stDataFrame"] th {
-        background: #252d3a !important;
-        color: #94a3b8 !important;
-        font-weight: 600;
-        text-transform: uppercase;
-        font-size: 0.75rem;
-        letter-spacing: 0.5px;
-    }
-    
-    [data-testid="stDataFrame"] td {
-        color: #f8fafc !important;
-        border-bottom: 1px solid #2d3748 !important;
+        background: rgba(15, 20, 30, 0.5);
     }
     
     /* === BUTTONS === */
-    .stButton > button {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-        color: white;
-        border: none;
+    .stButton button {
         border-radius: 10px;
         font-weight: 600;
-        padding: 12px 24px;
-        transition: all 0.2s ease;
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+        transition: all 0.2s;
+        border: 1px solid var(--border-glass);
     }
     
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+    .stButton button:hover {
+        border-color: var(--accent-primary);
+        color: var(--accent-primary);
+        box-shadow: 0 0 15px rgba(0, 242, 234, 0.15);
     }
     
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00d26a 0%, #00a854 100%);
-        box-shadow: 0 4px 15px rgba(0, 210, 106, 0.3);
-    }
-    
-    /* === INPUTS === */
-    [data-testid="stNumberInput"] input,
-    [data-testid="stTextInput"] input,
-    .stSelectbox > div > div {
-        background: #1e2530 !important;
-        border: 1px solid #2d3748 !important;
-        border-radius: 8px !important;
-        color: #f8fafc !important;
-    }
-    
-    /* === EXPANDERS === */
-    [data-testid="stExpander"] {
-        background: #1e2530;
-        border: 1px solid #2d3748;
-        border-radius: 12px;
-    }
-    
-    [data-testid="stExpander"] summary {
-        color: #f8fafc;
-        font-weight: 500;
-    }
-    
-    /* === DIVIDERS === */
-    [data-testid="stHorizontalBlock"] hr {
-        border-color: #2d3748;
-    }
-    
-    /* === TEXT AREA (Logs) === */
-    .stTextArea textarea {
-        background: #0f1419 !important;
-        border: 1px solid #2d3748 !important;
-        border-radius: 8px !important;
-        color: #00d26a !important;
-        font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
-        font-size: 0.85rem !important;
-    }
-    
-    /* === INFO/WARNING/SUCCESS BOXES === */
-    .stAlert {
-        border-radius: 10px;
-        border: none;
-    }
-    
-    [data-testid="stAlert"][data-baseweb="notification"] {
-        background: #1e2530;
-        border-left: 4px solid #3b82f6;
-    }
-    
-    /* === SLIDER === */
-    .stSlider > div > div > div {
-        background: #3b82f6 !important;
-    }
-    
-    /* === MULTISELECT === */
-    .stMultiSelect > div {
-        background: #1e2530 !important;
-        border-color: #2d3748 !important;
-    }
-    
-    /* === CHECKBOX === */
-    .stCheckbox label span {
-        color: #f8fafc !important;
-    }
-    
-    /* === CAPTIONS === */
-    .stCaption {
-        color: #64748b !important;
-    }
-    
-    /* === HEADERS === */
-    h1, h2, h3 {
-        color: #f8fafc !important;
-    }
-    
-    /* === CUSTOM CLASSES FOR COMPONENTS === */
-    .metric-card {
-        background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%);
-        border: 1px solid #2d3748;
-        border-radius: 16px;
-        padding: 24px;
-        text-align: center;
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-    }
-    
-    .metric-card .icon {
-        font-size: 2rem;
-        margin-bottom: 8px;
-    }
-    
-    .metric-card .label {
-        color: #94a3b8;
-        font-size: 0.8rem;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 4px;
-    }
-    
-    .metric-card .value {
-        color: #f8fafc;
-        font-size: 2rem;
-        font-weight: 700;
-    }
-    
-    .metric-card .value.positive { color: #00d26a; }
-    .metric-card .value.negative { color: #ff4757; }
-    
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
-        border-radius: 50px;
-        font-weight: 600;
-        font-size: 0.9rem;
-    }
-    
-    .status-badge.running {
-        background: rgba(0, 210, 106, 0.15);
-        color: #00d26a;
-        border: 1px solid rgba(0, 210, 106, 0.3);
-    }
-    
+</style>
+""", unsafe_allow_html=True)
+
     .status-badge.stopped {
         background: rgba(255, 71, 87, 0.15);
-        color: #ff4757;
         border: 1px solid rgba(255, 71, 87, 0.3);
     }
     
