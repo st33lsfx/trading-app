@@ -872,7 +872,7 @@ def show_metrics():
 show_metrics()
 
 # Tabs
-tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "🏆 Performance", "🔬 Backtest", "🎯 Strategy Intelligence", "🤖 Learning"])
+tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "🏆 Performance", "🔬 Backtest", "🎯 Strategy Intelligence", "🤖 Learning", "📅 Calendar"])
 
 # TAB 1: AI SCANNER (Live Data + Logs)
 with tabs[0]:
@@ -941,20 +941,20 @@ with tabs[0]:
                         pass
                     return 'color: #94a3b8'
                 
-                styled_df = df_display.style.applymap(
+                styled_df = df_display.style.map(
                     color_action, subset=['Action']
-                ).applymap(
+                ).map(
                     color_rsi, subset=['RSI']
                 )
                 
                 st.dataframe(
                     styled_df,
-                    use_container_width=True,
+                    width="stretch",
                     height=280,
                     hide_index=True
                 )
             else:
-                st.dataframe(df_scan, use_container_width=True, height=280, hide_index=True)
+                st.dataframe(df_scan, width="stretch", height=280, hide_index=True)
         else:
             st.markdown("""
             <div style="
@@ -1088,7 +1088,7 @@ with tabs[1]:
                         return 'background-color: rgba(0, 210, 106, 0.2); color: #00d26a'
                     return 'background-color: rgba(255, 71, 87, 0.2); color: #ff4757'
                 
-                styled = df.style.applymap(style_pnl, subset=['P&L']).applymap(style_direction, subset=['Direction'])
+                styled = df.style.map(style_pnl, subset=['P&L']).map(style_direction, subset=['Direction'])
                 
                 # Summary metrics
                 total_pnl = sum(d['P&L'] for d in data)
@@ -1099,7 +1099,7 @@ with tabs[1]:
                 col2.metric("Unrealized P&L", f"${total_pnl:+.2f}", delta="Profit" if total_pnl > 0 else "Loss")
                 col3.metric("Winning", f"{winning}/{len(data)}")
                 
-                st.dataframe(styled, use_container_width=True, hide_index=True)
+                st.dataframe(styled, width="stretch", hide_index=True)
             else:
                 st.info("No valid position data")
         else:
@@ -1189,8 +1189,8 @@ with tabs[3]:
                             except:
                                 return ''
                         
-                        styled = df.style.applymap(style_pnl, subset=['P&L'])
-                        st.dataframe(styled, use_container_width=True, hide_index=True)
+                        styled = df.style.map(style_pnl, subset=['P&L'])
+                        st.dataframe(styled, width="stretch", hide_index=True)
                 else:
                     st.info("No closed trades in the last 48 hours. Start trading to see performance data.")
                     
@@ -1511,7 +1511,7 @@ with tabs[4]:
                     "Trade #": range(len(result['equity_curve'])),
                     "Equity": result['equity_curve']
                 })
-                st.line_chart(eq_df.set_index("Trade #"), use_container_width=True, height=300)
+                st.line_chart(eq_df.set_index("Trade #"), width="stretch", height=300)
 
             # Trade History
             if result.get('trades'):
@@ -1520,7 +1520,7 @@ with tabs[4]:
                 # Format columns
                 display_cols = ['entry_time', 'exit_time', 'entry_price', 'exit_price', 'pnl_pct', 'exit_reason', 'bars_held']
                 display_cols = [c for c in display_cols if c in trades_df.columns]
-                st.dataframe(trades_df[display_cols], use_container_width=True, height=300)
+                st.dataframe(trades_df[display_cols], width="stretch", height=300)
 
                 # Summary stats
                 st.markdown(f"""
@@ -1575,7 +1575,7 @@ with tabs[4]:
 
             display_cols = ['rsi_buy', 'adx_min', 'risk_reward', 'win_rate', 'profit_factor', 'total_return_pct', 'total_trades']
             display_cols = [c for c in display_cols if c in opt_df.columns]
-            st.dataframe(opt_df[display_cols], use_container_width=True)
+            st.dataframe(opt_df[display_cols], width="stretch")
 
             best = st.session_state['opt_results'][0]
             st.success(f"Best params: RSI {best['params'].get('rsi_buy')}, ADX {best['params'].get('adx_min')}, "
@@ -2000,7 +2000,7 @@ with tabs[6]:
                 names = [str(w.get('epic') or w.get('yf') or w.get('t212') or w) for w in watchlist]
                 st.markdown(", ".join(names) if isinstance(names[0], str) else str(names))
                 df_wl = pd.DataFrame([{"Epic": w.get('epic',''), "YF": w.get('yf',''), "Název": w.get('name','')} for w in watchlist[:30]])
-                st.dataframe(df_wl, use_container_width=True, hide_index=True)
+                st.dataframe(df_wl, width="stretch", hide_index=True)
             else:
                 st.info("Watchlist bude k dispozici po startu bota.")
         
@@ -2349,34 +2349,139 @@ with tabs[6]:
     </div>
     """, unsafe_allow_html=True)
     
-    # Placeholder data for visual demo (replace with real learning engine data later)
+    # Get real data from Learning Engine
+    le = current_bot.learning_engine
+    
+    # 1. Top Assets (from ticker_stats)
+    ticker_stats = le.ticker_stats
+    
     l_col1, l_col2 = st.columns(2)
     
     with l_col1:
         st.markdown("**🏆 Top Performing Assets**")
-        # Simulating data structure from LearningEngine
-        top_assets = pd.DataFrame([
-            {"Asset": "EURUSD", "Profit": 120, "WinRate": "80%", "Rating": "⭐⭐⭐⭐⭐"},
-            {"Asset": "NVDA", "Profit": 85, "WinRate": "75%", "Rating": "⭐⭐⭐⭐"},
-            {"Asset": "TSLA", "Profit": 45, "WinRate": "60%", "Rating": "⭐⭐⭐"}
-        ])
-        st.dataframe(top_assets, use_container_width=True, hide_index=True)
-        
+        if ticker_stats:
+            # Convert to DF
+            data = []
+            for t, s in ticker_stats.items():
+                if s['trades'] > 0:
+                    data.append({
+                        "Asset": t,
+                        "Generates": f"${s['total_pnl']:.2f}",
+                        "WinRate": f"{s['win_rate']:.0f}%",
+                        "Trades": s['trades'],
+                        "PF": s['profit_factor']
+                    })
+            
+            if data:
+                df_top = pd.DataFrame(data)
+                # Sort by Profit (Generates)
+                df_top['Profit_Val'] = df_top['Generates'].apply(lambda x: float(x.replace("$","")))
+                df_top = df_top.sort_values('Profit_Val', ascending=False).head(10)
+                df_top = df_top.drop('Profit_Val', axis=1)
+                
+                st.dataframe(df_top, width="stretch", hide_index=True)
+            else:
+                st.info("No trading data available yet.")
+        else:
+            st.info("No trading data available yet.")
+            
     with l_col2:
         st.markdown("**🚫 Blacklisted (Avoided)**")
-        blacklisted = pd.DataFrame([
-            {"Asset": "GBPUSD", "Reason": "Low Win Rate (20%)", "Status": "Blocked"},
-            {"Asset": "BTC-USD", "Reason": "High Volatility", "Status": "Blocked"}
-        ])
-        st.dataframe(blacklisted, use_container_width=True, hide_index=True)
+        blacklisted = le.get_blacklisted_tickers()
+        if blacklisted:
+            b_data = []
+            for t in blacklisted:
+                reason = ticker_stats[t].get('blacklist_reason', 'Unknown')
+                b_data.append({"Asset": t, "Reason": reason})
+            
+            df_black = pd.DataFrame(b_data)
+            st.dataframe(df_black, width="stretch", hide_index=True)
+        else:
+            st.success("✅ No assets blacklisted. Bot is trading everything.")
 
-    st.markdown("### 📈 Learning Progress")
-    # Fake chart for demo
-    chart_data = pd.DataFrame({
-        "Day": range(1, 31),
-        "Win Rate": [40 + i + (i%5) for i in range(30)] 
-    })
-    st.line_chart(chart_data.set_index("Day"), color="#00d26a")
+    st.markdown("### 📈 Learning Progress (Cumulative P&L)")
+    
+    # Extract P&L history from activity log
+    # Log format: "trade", "{ticker} {direction} PnL ${pnl}"
+    import re
+    
+    pnl_history = []
+    cumulative_pnl = 0.0
+    
+    logs = le.activity_log
+    for log in logs:
+        if log['type'] == 'trade':
+            msg = log['message']
+            # Parse PnL
+            match = re.search(r'PnL\s\$([+\-]?\d+\.?\d*)', msg)
+            if match:
+                try:
+                    pnl = float(match.group(1))
+                    cumulative_pnl += pnl
+                    pnl_history.append({
+                        "Time": log['time'],
+                        "Total PnL": cumulative_pnl
+                    })
+                except:
+                    pass
+    
+    if pnl_history:
+        df_chart = pd.DataFrame(pnl_history)
+        st.line_chart(df_chart.set_index("Time"), width="stretch", color="#00f2ea")
+    else:
+        st.info("Waiting for completed trades to build learning curve...")
     
     st.caption("Data is updated dynamically as the bot learns from closed trades.")
 
+
+# TAB 8: ECONOMIC CALENDAR
+with tabs[7]:
+    st.markdown("""
+    <div style="margin-bottom: 20px;">
+        <h3 style="color: #f8fafc; margin: 0;">📅 Economic Calendar</h3>
+        <p style="color: #64748b; font-size: 0.9rem; margin-top: 4px;">Major market-moving events and news</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Refresh button
+    if st.button("🔄 Refresh Data", key="refresh_cal"):
+        st.cache_data.clear()
+        
+    try:
+        events_df = get_economic_calendar()
+        
+        if not events_df.empty:
+            # Stats (High Impact count)
+            high_impact_count = len(events_df[events_df['Impact'] == 'High'])
+            
+            if high_impact_count > 0:
+                st.warning(f"⚠️ {high_impact_count} High Impact Events detected today! Volatility Expected.")
+            else:
+                st.success("✅ No major scheduled risk events detected today.")
+            
+            # Display Table
+            st.markdown("### Today's Events")
+            
+            # Styling
+            def color_impact(val):
+                if val == 'High':
+                    return 'color: #ff4757; font-weight: bold'
+                elif val == 'Medium':
+                    return 'color: #fbbf24; font-weight: bold'
+                return 'color: #94a3b8'
+            
+            styled_events = events_df.style.map(color_impact, subset=['Impact'])
+            st.dataframe(styled_events, width="stretch", hide_index=True)
+            
+        else:
+            st.info("No major events found for today.")
+            
+    except Exception as e:
+        st.error(f"Failed to load calendar data: {str(e)}")
+        
+    # Manual Event Entry (Optional - for user to add notes)
+    with st.expander("📝 Add Custom Event Note"):
+        st.text_input("Event Name", placeholder="e.g. Fed Speech")
+        st.time_input("Time")
+        if st.button("Add Note"):
+            st.toast("Note added (simulation)")
