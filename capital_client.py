@@ -203,21 +203,42 @@ class CapitalClient:
                 
                 # Ensure minimum distance (at least 0.5% from entry)
                 min_sl_distance = entry_price * 0.005
-                if direction == "BUY":
-                    if entry_price - stop_loss < min_sl_distance:
+                actual_sl_distance = abs(entry_price - stop_loss)
+                
+                # If SL is too tight, widen it
+                if actual_sl_distance < min_sl_distance:
+                    if direction == "BUY":
                         stop_loss = entry_price - min_sl_distance
-                else:
-                    if stop_loss - entry_price < min_sl_distance:
+                    else:
                         stop_loss = entry_price + min_sl_distance
+                    actual_sl_distance = min_sl_distance
                         
                 data["stopLevel"] = round(stop_loss, 5)
 
             if take_profit and entry_price > 0:
-                # Validate TP is on correct side
-                if direction == "BUY" and take_profit <= entry_price:
-                    take_profit = entry_price * 1.01  # 1% above
-                elif direction == "SELL" and take_profit >= entry_price:
-                    take_profit = entry_price * 0.99  # 1% below
+                # Calculate implied R:R based on FINAL Stop Loss
+                # Original TP distance?
+                # We should ensure TP is at least 1.5x Risk (Dynamic Adjustment)
+                desired_tp_distance = actual_sl_distance * 1.5
+                
+                if direction == "BUY":
+                    # Current TP distance
+                    current_tp_dist = take_profit - entry_price
+                    # If current TP is too close relative to new SL, push it out
+                    if current_tp_dist < desired_tp_distance:
+                        take_profit = entry_price + desired_tp_distance
+                    
+                    # Basic validation (must be above entry)
+                    if take_profit <= entry_price:
+                        take_profit = entry_price * 1.01
+                        
+                elif direction == "SELL":
+                     current_tp_dist = entry_price - take_profit
+                     if current_tp_dist < desired_tp_distance:
+                         take_profit = entry_price - desired_tp_distance
+                     
+                     if take_profit >= entry_price:
+                         take_profit = entry_price * 0.99
                     
                 data["profitLevel"] = round(take_profit, 5)
                 
