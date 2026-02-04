@@ -18,13 +18,13 @@ MAX_POSITIONS = 3          # Méně pozic = nižší risk
 TRADE_AMOUNT_CZK = 100     # ~$4 per trade
 SL_PCT = 0.01              # 1% SL
 TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
-MAX_SCAN_PER_CYCLE = 40    # Více assetů = více příležitostí
+MAX_SCAN_PER_CYCLE = 100   # Víc assetů = víc příležitostí
 INTERVAL = "5m"            # 5min timeframe pro scalping
 PERIOD = "5d"              # 5 dní dat pro 5m interval
 
-# Learning-based watchlist
-TARGET_WATCHLIST_SIZE = 20
-MIN_TRADES_FOR_RANK = 3
+# Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
+TARGET_WATCHLIST_SIZE = 50  # Zvýšeno z 20 - bot prozkoumá víc assetů
+MIN_TRADES_FOR_RANK = 3     # Min obchodů pro hodnocení
 
 from capital_client import CapitalClient
 
@@ -89,7 +89,7 @@ class TradingBot:
         
         # Merging Learned Params with Strategy Config
         # Prioritize learned params, but fall back to strategy_config (user/backtest settings)
-        self.smart_analyst = get_smart_analyst()
+        self.smart_analyst = None  # Vypnuto - Yahoo Finance rate limited
         # instead of hardcoded conservative defaults.
         
         base_config = self.strategy_config.copy()
