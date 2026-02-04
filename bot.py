@@ -52,36 +52,6 @@ class TradingBot:
         self.strategy_type = "mean_reversion"  # DEFAULT: Mean Reversion
         
         # =====================================================
-        # SELF-LEARNING ENGINE
-        # =====================================================
-        # Bot se učí z vlastních obchodů a automaticky optimalizuje
-        self.learning_engine = get_learning_engine(use_supabase=True)
-        
-        # Get learned parameters (or use defaults)
-        learned = self.learning_engine.get_learned_params()
-        
-        # Mean Reversion with learned parameters
-        self.mean_reversion = MeanReversionStrategy({
-            "rsi_oversold": learned.get("rsi_oversold", 35),
-            "rsi_overbought": learned.get("rsi_overbought", 70),
-            "atr_sl_mult": learned.get("atr_sl_mult", 2.5),
-            "min_rr_ratio": learned.get("min_rr_ratio", 1.0),
-            "use_trend_filter": False,
-            "use_volatility_filter": True,
-            "use_volume_filter": False,
-            "use_session_filter": False,
-        })
-        
-        # Apply learned short enable/disable
-        self.enable_shorts = learned.get("enable_shorts", False)
-        
-        self.log(f"🧠 Learning Engine: Loaded params {learned}")
-
-        # UI & Strategy State (Initialized here for immediate access)
-        self.scan_results = []
-        self.last_trade_times = {}
-        
-        # =====================================================
         # HIGH VOLUME + HIGH WR - OVĚŘENO BACKTESTEM (únor 2026)
         # =====================================================
         # Výsledky: 70% WR, 12 obchodů/den, 268 obchodů/měsíc
@@ -89,9 +59,9 @@ class TradingBot:
         # 2000 Kč → 6710 Kč měsíčně!
         self.strategy_config = {
             "rsi_buy": 55,
-            "rsi_oversold": 35,
+            "rsi_oversold": 55,          # Nastavíme i oversold threshold stejně vysoko
             "rsi_sell": 45,
-            "rsi_overbought": 70,
+            "rsi_overbought": 45,        # Symetricky pro short
             "adx_min": 12,
             "risk_reward": 1.2,
             "atr_sl_mult": 2.5,
@@ -100,6 +70,79 @@ class TradingBot:
             "require_session": False,
             "enable_shorts": False,  # VYPNUTO - SHORT pozice ztrácejí v uptrendu
         }
+        
+        # === HIGH VOLUME SETTINGS ===
+        self.aggressive_mode = True
+
+        # =====================================================
+        # SELF-LEARNING ENGINE
+        # =====================================================
+        # Bot se učí z vlastních obchodů a automaticky optimalizuje
+        self.learning_engine = get_learning_engine(use_supabase=True)
+        
+        # Get learned parameters (or use defaults)
+        learned = self.learning_engine.get_learned_params()
+        
+        # Merging Learned Params with Strategy Config
+        # Prioritize learned params, but fall back to strategy_config (user/backtest settings)
+        # instead of hardcoded conservative defaults.
+        
+        base_config = self.strategy_config.copy()
+        
+        # Override base config with learned values ONLY if they exist
+        if learned:
+            # We map the learned keys to our config keys
+            if "rsi_oversold" in learned: base_config["rsi_oversold"] = learned["rsi_oversold"]
+            if "rsi_overbought" in learned: base_config["rsi_overbought"] = learned["rsi_overbought"]
+            if "atr_sl_mult" in learned: base_config["atr_sl_mult"] = learned["atr_sl_mult"]
+            # Add other learned params that might not be in base config (e.g. min_rr)
+            base_config["min_rr_ratio"] = learned.get("min_rr_ratio", 1.0)
+        else:
+            # If no learned params yet, ensure we have defaults for MeanReversionStrategy
+            base_config["min_rr_ratio"] = 1.0
+            
+        # Hardforce some High Volume settings if aggressive mode is ON (and learning hasn't drastically changed them)
+        if self.aggressive_mode:
+             # Ensure we don't start too conservative if we want volume
+             current_rsi_buy = base_config.get("rsi_oversold", 35)
+             current_rsi_sell = base_config.get("rsi_overbought", 70)
+             
+             # If RSI buy is too low (conservative), Force it higher for more volume
+             if current_rsi_buy < 50:
+                 self.log(f"⚡ AGGRESSIVE MODE: Boosting RSI Buy from {current_rsi_buy} to 55")
+                 base_config["rsi_oversold"] = 55
+                 
+             # If RSI sell is too high (conservative), Force it lower
+             if current_rsi_sell > 50:
+                 self.log(f"⚡ AGGRESSIVE MODE: Boosting RSI Sell from {current_rsi_sell} to 45")
+                 base_config["rsi_overbought"] = 45 # Symetricky pro short
+                 
+             # Ensure shorts are disabled in high volume mode (trend following logic often safer for just mean reversion BUYs or specific setup)
+             self.strategy_config["enable_shorts"] = False 
+             # Also update the learned config copy
+             base_config["enable_shorts"] = False
+             if learned: learned["enable_shorts"] = False
+
+        self.mean_reversion = MeanReversionStrategy({
+            "rsi_oversold": base_config.get("rsi_oversold", 35),
+            "rsi_overbought": base_config.get("rsi_overbought", 70),
+            "atr_sl_mult": base_config.get("atr_sl_mult", 2.5),
+            "min_rr_ratio": base_config.get("min_rr_ratio", 1.0),
+            "use_trend_filter": False,
+            "use_volatility_filter": True,
+            "use_volume_filter": False,
+            "use_session_filter": False,
+            # Pass full config just in case strategy uses other keys
+            **base_config 
+        })
+        
+        self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))
+        
+        self.log(f"🧠 Strategy Initialized. RSI: {self.mean_reversion.rsi_oversold}/{self.mean_reversion.rsi_overbought}")
+
+        # UI & Strategy State (Initialized here for immediate access)
+        self.scan_results = []
+        self.last_trade_times = {}
         
         # =====================================================
         # BLACKLIST - ZTRÁTOVÉ (aktualizováno únor 2026)
@@ -155,9 +198,6 @@ class TradingBot:
         self.daily_profit_target = 4.0 # USD (~100 Kč) – realistický denní cíl
         self.session_stopped_reason = None
         self._daily_pnl_lock = threading.Lock()
-
-        # === HIGH VOLUME SETTINGS ===
-        self.aggressive_mode = True
 
         # Position sizing
         self.margin_usage_pct = 0.40  # 40% marginu
@@ -1020,19 +1060,41 @@ class TradingBot:
             
             # Update strategy with new learned params
             learned = self.learning_engine.get_learned_params()
+            
+            # Re-merge with base config (same logic as __init__)
+            base_config = self.strategy_config.copy()
+            if "rsi_oversold" in learned: base_config["rsi_oversold"] = learned["rsi_oversold"]
+            if "rsi_overbought" in learned: base_config["rsi_overbought"] = learned["rsi_overbought"]
+            if "atr_sl_mult" in learned: base_config["atr_sl_mult"] = learned["atr_sl_mult"]
+            base_config["min_rr_ratio"] = learned.get("min_rr_ratio", 1.0)
+
+            # Hardforce some High Volume settings if aggressive mode is ON (same as init)
+            if self.aggressive_mode:
+                 current_rsi_buy = base_config.get("rsi_oversold", 35)
+                 current_rsi_sell = base_config.get("rsi_overbought", 70)
+                 
+                 if current_rsi_buy < 50:
+                     base_config["rsi_oversold"] = 55
+                 if current_rsi_sell > 50:
+                     base_config["rsi_overbought"] = 45 
+                     
+                 self.enable_shorts = False
+
             self.mean_reversion = MeanReversionStrategy({
-                "rsi_oversold": learned.get("rsi_oversold", 35),
-                "rsi_overbought": learned.get("rsi_overbought", 70),
-                "atr_sl_mult": learned.get("atr_sl_mult", 2.5),
-                "min_rr_ratio": learned.get("min_rr_ratio", 1.0),
+                "rsi_oversold": base_config.get("rsi_oversold", 35),
+                "rsi_overbought": base_config.get("rsi_overbought", 70),
+                "atr_sl_mult": base_config.get("atr_sl_mult", 2.5),
+                "min_rr_ratio": base_config.get("min_rr_ratio", 1.0),
                 "use_trend_filter": False,
                 "use_volatility_filter": True,
                 "use_volume_filter": False,
                 "use_session_filter": False,
+                **base_config
             })
-            self.enable_shorts = learned.get("enable_shorts", False)
+            if not self.aggressive_mode:
+                self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))
             
-            self.log(f"🧠 Strategy updated with learned params: {learned}")
+            self.log(f"🧠 Strategy updated with learned params: RSI {self.mean_reversion.rsi_oversold}/{self.mean_reversion.rsi_overbought}")
 
     def scan_cycle(self):
         self.update_daily_pnl()
