@@ -89,7 +89,7 @@ class TradingBot:
         
         # Merging Learned Params with Strategy Config
         # Prioritize learned params, but fall back to strategy_config (user/backtest settings)
-        self.smart_analyst = None  # Vypnuto - Yahoo Finance rate limited
+        self.smart_analyst = get_smart_analyst()  # ZAPNUTO - Rate limits opraveny
         # instead of hardcoded conservative defaults.
         
         base_config = self.strategy_config.copy()
