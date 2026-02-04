@@ -276,34 +276,49 @@ KEYS = {
 }
 
 # --- State Management ---
-if 'bots' not in st.session_state:
-    st.session_state.bots = {}
+# Using cache_resource to create a GLOBAL SINGLETON bot.
+# This ensures that if you open the app on your phone, it sees the SAME bot as your computer.
+# It also prevents multiple bots from running if you refresh the page.
+
+@st.cache_resource(show_spinner=False)
+def get_global_bot_instance(broker_code, api_key, base_url, login=None, password=None):
+    """
+    Create a persistent TradingBot instance that survives session refreshes
+    and can be accessed from multiple devices (Singleton).
+    """
+    if broker_code == "t212":
+        return TradingBot(api_key, base_url, broker="t212")
+    else:
+        return TradingBot(
+            api_key, 
+            base_url, 
+            broker="capital", 
+            cap_login=login, 
+            cap_pass=password
+        )
 
 def get_or_create_bot(broker_code):
-    """Retrieve existing bot instance or create new one."""
-    if broker_code in st.session_state.bots:
-        return st.session_state.bots[broker_code]
-    
-    # Create New
+    """Retrieve the global bot instance."""
     if broker_code == "t212":
         if not KEYS['t212']['api']:
             st.error("Missing T212 Keys")
             return None
-        bot = TradingBot(KEYS['t212']['api'], KEYS['t212']['url'], broker="t212")
+        return get_global_bot_instance(
+            "t212", 
+            KEYS['t212']['api'], 
+            KEYS['t212']['url']
+        )
     else:
         if not (KEYS['capital']['api'] and KEYS['capital']['login']):
             st.error("Missing Capital Keys")
             return None
-        bot = TradingBot(
+        return get_global_bot_instance(
+            "capital",
             KEYS['capital']['api'], 
             KEYS['capital']['url'], 
-            broker="capital", 
-            cap_login=KEYS['capital']['login'], 
-            cap_pass=KEYS['capital']['pass']
+            KEYS['capital']['login'], 
+            KEYS['capital']['pass']
         )
-    
-    st.session_state.bots[broker_code] = bot
-    return bot
 
 # --- Sidebar ---
 # Logo and Branding
