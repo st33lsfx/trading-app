@@ -75,8 +75,8 @@ class TradingBot:
         }
         
         # === HIGH VOLUME SETTINGS ===
-        # VYPNUTO - aggressive mode ničí kvalitu signálů pro mean reversion
-        self.aggressive_mode = False
+        # ZAPNUTO - používáme v2.0 safe aggressive logiku (RSI 35/65, ne 55/45)
+        self.aggressive_mode = True
 
         # =====================================================
         # SELF-LEARNING ENGINE
@@ -107,26 +107,21 @@ class TradingBot:
             base_config["min_rr_ratio"] = 1.0
             
         # Hardforce some High Volume settings if aggressive mode is ON (and learning hasn't drastically changed them)
+        # Hardforce settings if aggressive mode is ON (Override learned params if needed)
         if self.aggressive_mode:
-             # Ensure we don't start too conservative if we want volume
-             current_rsi_buy = base_config.get("rsi_oversold", 35)
-             current_rsi_sell = base_config.get("rsi_overbought", 70)
+             # FIX: RSI 55/45 was too loose. 30/70 is too strict.
+             # COMPROMISE: 35/65 for 5m Timeframe (Active but Safe)
+             target_buy = 35
+             target_sell = 65
              
-             # If RSI buy is too low (conservative), Force it higher for more volume
-             if current_rsi_buy < 50:
-                 self.log(f"⚡ AGGRESSIVE MODE: Boosting RSI Buy from {current_rsi_buy} to 55")
-                 base_config["rsi_oversold"] = 55
-                 
-             # If RSI sell is too high (conservative), Force it lower
-             if current_rsi_sell > 50:
-                 self.log(f"⚡ AGGRESSIVE MODE: Boosting RSI Sell from {current_rsi_sell} to 45")
-                 base_config["rsi_overbought"] = 45 # Symetricky pro short
-                 
-             # Ensure shorts are disabled in high volume mode (trend following logic often safer for just mean reversion BUYs or specific setup)
-             self.strategy_config["enable_shorts"] = False 
-             # Also update the learned config copy
-             base_config["enable_shorts"] = False
-             if learned: learned["enable_shorts"] = False
+             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell} (Overriding learned params)")
+             base_config["rsi_oversold"] = target_buy
+             base_config["rsi_overbought"] = target_sell
+             
+             # Enable shorts for scalping
+             self.strategy_config["enable_shorts"] = True 
+             base_config["enable_shorts"] = True
+             if learned: learned["enable_shorts"] = True
 
         self.mean_reversion = MeanReversionStrategy({
             "rsi_oversold": base_config.get("rsi_oversold", 40),   # BUY pod 40
