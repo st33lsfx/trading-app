@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import time
-from dotenv import load_dotenv
 from bot import TradingBot
 from backtest import Backtester
 
@@ -12,6 +11,26 @@ st.set_page_config(
     page_icon="📈",
     layout="wide"
 )
+
+# ============================================
+# HELPER: Get secrets (Streamlit Cloud + Local)
+# ============================================
+def get_secret(key, default=None):
+    """
+    Get secret from Streamlit Cloud secrets or fall back to environment variable.
+    Works both on Streamlit Cloud and local development.
+    """
+    try:
+        # Try Streamlit secrets first (for Streamlit Cloud)
+        return st.secrets[key]
+    except (KeyError, FileNotFoundError):
+        # Fall back to environment variable (for local development)
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+        return os.getenv(key, default)
 
 # ============================================
 # CUSTOM CSS THEME - Professional Trading Look
@@ -389,18 +408,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Load Env
-load_dotenv()
+# Load Secrets (works on Streamlit Cloud and locally)
 KEYS = {
     "t212": {
-        "api": os.getenv("T212_API_KEY"),
-        "url": os.getenv("T212_BASE_URL")
+        "api": get_secret("T212_API_KEY"),
+        "url": get_secret("T212_BASE_URL")
     },
     "capital": {
-        "api": os.getenv("CAPITAL_API_KEY"),
-        "login": os.getenv("CAPITAL_LOGIN"),
-        "pass": os.getenv("CAPITAL_PASSWORD"),
-        "url": os.getenv("CAPITAL_BASE_URL", "https://demo-api-capital.backend-capital.com")
+        "api": get_secret("CAPITAL_API_KEY"),
+        "login": get_secret("CAPITAL_LOGIN"),
+        "pass": get_secret("CAPITAL_PASSWORD"),
+        "url": get_secret("CAPITAL_BASE_URL", "https://demo-api-capital.backend-capital.com")
     }
 }
 
