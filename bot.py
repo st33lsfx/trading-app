@@ -1194,12 +1194,11 @@ class TradingBot:
 
             # Hardforce some High Volume settings if aggressive mode is ON (same as init)
             if self.aggressive_mode:
-                 # FIX: RSI 55/45 was too loose (buying early).
-                 # Aggressive mode should mean "High Volume but Strict Entry".
+                 # FIX: RSI 55/45 was too loose. 30/70 is too strict.
+                 # COMPROMISE: 35/65 for 5m Timeframe (Active but Safe)
                  
-                 # Enforce stricter RSI for mean reversion scalping
-                 base_config["rsi_oversold"] = 30  # Strict oversold
-                 base_config["rsi_overbought"] = 70 # Strict overbought
+                 base_config["rsi_oversold"] = 35  # Buy @ 35 (Standard aggressive)
+                 base_config["rsi_overbought"] = 65 # Sell @ 65
                  
                  # Enable shorts for scalping (both directions profit)
                  self.enable_shorts = True
