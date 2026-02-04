@@ -222,15 +222,20 @@ class MeanReversionStrategy:
 
         potential_signal = None
 
-        # BUY SIGNAL: Cena u spodní BB + RSI oversold
-        if row['Low'] <= bb_lower and rsi < self.rsi_oversold:
+        # Tolerance pro BB dotek (0.3% = cena může být mírně nad/pod BB)
+        bb_tolerance = 0.003  # 0.3%
+        bb_lower_with_tolerance = bb_lower * (1 + bb_tolerance)
+        bb_upper_with_tolerance = bb_upper * (1 - bb_tolerance)
+
+        # BUY SIGNAL: Cena blízko spodní BB + RSI oversold
+        if row['Low'] <= bb_lower_with_tolerance and rsi < self.rsi_oversold:
             potential_signal = "BUY"
             base_confidence = 0.6 + (self.rsi_oversold - rsi) / 100
             sl = current_price - (atr * self.atr_sl_mult)
             tp = bb_mid
 
-        # SELL SIGNAL: Cena u horní BB + RSI overbought
-        elif row['High'] >= bb_upper and rsi > self.rsi_overbought:
+        # SELL SIGNAL: Cena blízko horní BB + RSI overbought
+        elif row['High'] >= bb_upper_with_tolerance and rsi > self.rsi_overbought:
             potential_signal = "SELL"
             base_confidence = 0.6 + (rsi - self.rsi_overbought) / 100
             sl = current_price + (atr * self.atr_sl_mult)
