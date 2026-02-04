@@ -15,7 +15,7 @@ load_dotenv()
 
 # Global Configuration - SAFE MODE (v2.0)
 MAX_POSITIONS = 5          # Více pozic = větší diverzifikace (požadavek uživatele)
-TRADE_AMOUNT_CZK = 100     # ~$4 per trade
+TRADE_AMOUNT_CZK = 200     # ~$8 per trade (změna na žádost uživatele)
 SL_PCT = 0.01              # 1% SL
 TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
 MAX_SCAN_PER_CYCLE = 100   # Víc assetů = víc příležitostí
@@ -32,7 +32,7 @@ class TradingBot:
     def __init__(self, api_key, base_url, broker="t212", cap_login=None, cap_pass=None):
         self.broker = broker
         self.api_key = api_key
-        self.trade_amount = 4.0  # Default for small account (~$4 per trade)
+        self.trade_amount = TRADE_AMOUNT_CZK  # Use global config
         self.small_account_mode = True  # Enable for accounts under $200
         # Check broker type
         if self.broker == "capital":
