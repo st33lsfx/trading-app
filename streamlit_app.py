@@ -8,8 +8,8 @@ from economic_data import get_economic_calendar, is_market_volatile_today
 
 # Page Config
 st.set_page_config(
-    page_title="Trading Bot Master",
-    page_icon="📈",
+    page_title="Trading Bot 3.0 | Neon",
+    page_icon="🎮",
     layout="wide"
 )
 
@@ -34,230 +34,457 @@ def get_secret(key, default=None):
         return os.getenv(key, default)
 
 # ============================================
-# CUSTOM CSS THEME - Premium "Quantum" Design
+# CUSTOM CSS THEME - "Neon Cyberpunk" Design v3.0
 # ============================================
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
-    /* === VARIABLES === */
+    /* === COLOR PALETTE === */
     :root {
-        --bg-app: #0a0e14;
-        --bg-card: rgba(30, 41, 59, 0.4);
-        --bg-card-hover: rgba(45, 55, 75, 0.5);
-        --accent-primary: #00f2ea;
-        --accent-secondary: #ff0055;
+        --bg-deep: #0a0f1c;
+        --bg-card: rgba(16, 24, 40, 0.7);
+        --bg-card-hover: rgba(25, 35, 55, 0.8);
+        --neon-cyan: #00f5ff;
+        --neon-pink: #ff00aa;
+        --neon-green: #00ff88;
+        --neon-red: #ff4444;
+        --neon-yellow: #ffdd00;
         --text-primary: #ffffff;
-        --text-secondary: #94a3b8;
-        --border-glass: rgba(255, 255, 255, 0.08);
-        --shadow-glow: 0 0 20px rgba(0, 242, 234, 0.1);
+        --text-secondary: #8892a6;
+        --border-glow: rgba(0, 245, 255, 0.2);
+        --grid-color: rgba(0, 245, 255, 0.03);
     }
     
     html, body, [class*="css"] {
         font-family: 'Outfit', sans-serif;
     }
     
-    code, .stCodeBlock, [class*="stDataFrame"] {
+    code, .stCodeBlock, [class*="stDataFrame"] td, [class*="stDataFrame"] th {
         font-family: 'JetBrains Mono', monospace !important;
     }
 
-    /* === MAIN BACKGROUND === */
+    /* === MAIN BACKGROUND WITH GRID === */
     .stApp {
-        background-color: var(--bg-app);
+        background-color: var(--bg-deep);
         background-image: 
-            radial-gradient(circle at 10% 20%, rgba(0, 242, 234, 0.03) 0%, transparent 40%),
-            radial-gradient(circle at 90% 80%, rgba(255, 0, 85, 0.03) 0%, transparent 40%);
+            linear-gradient(rgba(0, 245, 255, 0.02) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 245, 255, 0.02) 1px, transparent 1px),
+            radial-gradient(ellipse at 20% 0%, rgba(0, 245, 255, 0.08) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 100%, rgba(255, 0, 170, 0.06) 0%, transparent 50%);
+        background-size: 50px 50px, 50px 50px, 100% 100%, 100% 100%;
     }
 
-    /* === SIDEBAR === */
+    /* === SIDEBAR - Cyberpunk Panel === */
     [data-testid="stSidebar"] {
-        background-color: rgba(10, 14, 20, 0.8) !important;
-        border-right: 1px solid var(--border-glass);
-        backdrop-filter: blur(12px);
+        background: linear-gradient(180deg, rgba(10, 15, 28, 0.95) 0%, rgba(16, 24, 40, 0.9) 100%) !important;
+        border-right: 1px solid var(--border-glow);
+        box-shadow: 4px 0 30px rgba(0, 245, 255, 0.05);
     }
     
-    /* === METRIC CARDS (Glassmorphism) === */
+    [data-testid="stSidebar"] .stButton button {
+        background: linear-gradient(135deg, rgba(0, 245, 255, 0.1) 0%, rgba(255, 0, 170, 0.1) 100%);
+        border: 1px solid var(--neon-cyan);
+        color: var(--neon-cyan);
+        text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+        transition: all 0.3s ease;
+    }
+    
+    [data-testid="stSidebar"] .stButton button:hover {
+        background: linear-gradient(135deg, rgba(0, 245, 255, 0.2) 0%, rgba(255, 0, 170, 0.2) 100%);
+        box-shadow: 0 0 20px rgba(0, 245, 255, 0.3), inset 0 0 20px rgba(0, 245, 255, 0.1);
+        transform: translateY(-2px);
+    }
+    
+    /* === METRIC CARDS - Neon Glass === */
     [data-testid="stMetric"] {
         background: var(--bg-card);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid var(--border-glass);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--border-glow);
         border-radius: 16px;
         padding: 24px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    
-    [data-testid="stMetric"]:hover {
-        border-color: rgba(255, 255, 255, 0.2);
-        transform: translateY(-4px);
-        box-shadow: var(--shadow-glow);
-    }
-    
-    [data-testid="stMetricLabel"] {
-        color: var(--text-secondary) !important;
-        font-size: 0.8rem !important;
-        font-weight: 500 !important;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    
-    [data-testid="stMetricValue"] {
-        color: var(--text-primary) !important;
-        font-size: 2rem !important;
-        font-weight: 700 !important;
-        text-shadow: 0 0 10px rgba(255,255,255,0.1);
-    }
-    
-    /* === TABS === */
-    .stTabs [data-baseweb="tab-list"] {
-        background: rgba(255,255,255,0.03);
-        border-radius: 16px;
-        padding: 6px;
-        gap: 8px;
-        border: 1px solid var(--border-glass);
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 12px;
-        color: var(--text-secondary);
-        font-weight: 500;
-        padding: 8px 16px;
-        transition: all 0.2s;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%) !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        color: var(--accent-primary) !important;
-        text-shadow: 0 0 15px rgba(0, 242, 234, 0.4);
-    }
-    
-    /* === DATAFRAME === */
-    [data-testid="stDataFrame"] {
-        border: 1px solid var(--border-glass) !important;
-        border-radius: 12px;
-        background: rgba(15, 20, 30, 0.5);
-    }
-    
-    /* === BUTTONS === */
-    .stButton button {
-        border-radius: 10px;
-        font-weight: 600;
-        transition: all 0.2s;
-        border: 1px solid var(--border-glass);
-    }
-    
-    .stButton button:hover {
-        border-color: var(--accent-primary);
-        color: var(--accent-primary);
-        box-shadow: 0 0 15px rgba(0, 242, 234, 0.15);
-    }
-    
-    .status-badge.stopped {
-        background: rgba(255, 71, 87, 0.15);
-        border: 1px solid rgba(255, 71, 87, 0.3);
-    }
-    
-    .pulse {
-        animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-    
-    .signal-buy {
-        background: rgba(0, 210, 106, 0.2);
-        color: #00d26a;
-        padding: 4px 12px;
-        border-radius: 6px;
-        font-weight: 600;
-    }
-    
-    .signal-sell {
-        background: rgba(255, 71, 87, 0.2);
-        color: #ff4757;
-        padding: 4px 12px;
-        border-radius: 6px;
-        font-weight: 600;
-    }
-    
-    .signal-neutral {
-        background: rgba(148, 163, 184, 0.2);
-        color: #94a3b8;
-        padding: 4px 12px;
-        border-radius: 6px;
-        font-weight: 600;
-    }
-    
-    .hero-banner {
-        background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #06b6d4 100%);
-        border-radius: 20px;
-        padding: 32px;
-        margin-bottom: 24px;
         position: relative;
         overflow: hidden;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     }
     
-    .hero-banner::before {
+    [data-testid="stMetric"]::before {
         content: '';
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
-        bottom: 0;
-        background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-        opacity: 0.5;
+        height: 3px;
+        background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+        opacity: 0;
+        transition: opacity 0.3s;
     }
     
-    .hero-banner h2 {
-        color: white !important;
-        font-size: 1.8rem;
-        margin-bottom: 8px;
-        position: relative;
-        z-index: 1;
+    [data-testid="stMetric"]:hover {
+        border-color: var(--neon-cyan);
+        transform: translateY(-6px);
+        box-shadow: 
+            0 20px 40px rgba(0, 0, 0, 0.3),
+            0 0 30px rgba(0, 245, 255, 0.1),
+            inset 0 0 30px rgba(0, 245, 255, 0.02);
     }
     
-    .hero-banner p {
-        color: rgba(255, 255, 255, 0.8);
-        position: relative;
-        z-index: 1;
+    [data-testid="stMetric"]:hover::before {
+        opacity: 1;
     }
     
-    .kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 16px;
-    }
-    
-    .kpi-card {
-        background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%);
-        border: 1px solid #2d3748;
-        border-radius: 12px;
-        padding: 20px;
-        text-align: center;
-    }
-    
-    .kpi-card .kpi-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #f8fafc;
-    }
-    
-    .kpi-card .kpi-label {
-        font-size: 0.75rem;
-        color: #64748b;
+    [data-testid="stMetricLabel"] {
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem !important;
+        font-weight: 600 !important;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-top: 4px;
+        letter-spacing: 1.5px;
     }
     
-    .kpi-card.success .kpi-value { color: #00d26a; }
-    .kpi-card.danger .kpi-value { color: #ff4757; }
-    .kpi-card.warning .kpi-value { color: #fbbf24; }
-    .kpi-card.info .kpi-value { color: #3b82f6; }
+    [data-testid="stMetricValue"] {
+        color: var(--text-primary) !important;
+        font-size: 2.2rem !important;
+        font-weight: 700 !important;
+        text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+    }
+    
+    /* === TABS - Neon Selector === */
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(16, 24, 40, 0.5);
+        border-radius: 20px;
+        padding: 8px;
+        gap: 8px;
+        border: 1px solid rgba(0, 245, 255, 0.1);
+        backdrop-filter: blur(10px);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 14px;
+        color: var(--text-secondary);
+        font-weight: 500;
+        padding: 10px 20px;
+        transition: all 0.3s ease;
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover {
+        background: rgba(0, 245, 255, 0.05);
+        color: var(--neon-cyan);
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, rgba(0, 245, 255, 0.15) 0%, rgba(255, 0, 170, 0.1) 100%) !important;
+        border: 1px solid var(--neon-cyan) !important;
+        color: var(--neon-cyan) !important;
+        text-shadow: 0 0 15px rgba(0, 245, 255, 0.6);
+        box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+    }
+    
+    /* === DATAFRAME - Matrix Style === */
+    [data-testid="stDataFrame"] {
+        border: 1px solid rgba(0, 245, 255, 0.15) !important;
+        border-radius: 16px;
+        background: rgba(10, 15, 28, 0.7);
+        overflow: hidden;
+    }
+    
+    [data-testid="stDataFrame"] th {
+        background: rgba(0, 245, 255, 0.08) !important;
+        color: var(--neon-cyan) !important;
+        text-transform: uppercase;
+        font-size: 0.7rem;
+        letter-spacing: 1px;
+    }
+    
+    [data-testid="stDataFrame"] tr:hover td {
+        background: rgba(0, 245, 255, 0.05) !important;
+    }
+    
+    /* === BUTTONS === */
+    .stButton button {
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.05);
+    }
+    
+    .stButton button:hover {
+        border-color: var(--neon-cyan);
+        color: var(--neon-cyan);
+        box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+        text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+    }
+    
+    /* === SIGNAL BADGES === */
+    .signal-buy {
+        background: linear-gradient(135deg, rgba(0, 255, 136, 0.2) 0%, rgba(0, 255, 136, 0.1) 100%);
+        color: var(--neon-green);
+        padding: 6px 16px;
+        border-radius: 8px;
+        font-weight: 700;
+        border: 1px solid rgba(0, 255, 136, 0.3);
+        text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        animation: glow-green 2s ease-in-out infinite alternate;
+    }
+    
+    .signal-sell, .signal-short {
+        background: linear-gradient(135deg, rgba(255, 0, 170, 0.2) 0%, rgba(255, 0, 170, 0.1) 100%);
+        color: var(--neon-pink);
+        padding: 6px 16px;
+        border-radius: 8px;
+        font-weight: 700;
+        border: 1px solid rgba(255, 0, 170, 0.3);
+        text-shadow: 0 0 10px rgba(255, 0, 170, 0.5);
+        animation: glow-pink 2s ease-in-out infinite alternate;
+    }
+    
+    .signal-neutral {
+        background: rgba(136, 146, 166, 0.1);
+        color: var(--text-secondary);
+        padding: 6px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        border: 1px solid rgba(136, 146, 166, 0.2);
+    }
+    
+    @keyframes glow-green {
+        from { box-shadow: 0 0 5px rgba(0, 255, 136, 0.2); }
+        to { box-shadow: 0 0 15px rgba(0, 255, 136, 0.4); }
+    }
+    
+    @keyframes glow-pink {
+        from { box-shadow: 0 0 5px rgba(255, 0, 170, 0.2); }
+        to { box-shadow: 0 0 15px rgba(255, 0, 170, 0.4); }
+    }
+    
+    /* === HERO P&L BANNER === */
+    .hero-pnl {
+        background: linear-gradient(135deg, #0a0f1c 0%, #1a1f2e 100%);
+        border: 1px solid var(--border-glow);
+        border-radius: 24px;
+        padding: 40px;
+        margin-bottom: 24px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .hero-pnl::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink), var(--neon-cyan));
+        background-size: 200% 100%;
+        animation: gradient-shift 3s ease infinite;
+    }
+    
+    .hero-pnl::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 300px;
+        height: 300px;
+        background: radial-gradient(circle, rgba(0, 245, 255, 0.1) 0%, transparent 70%);
+        pointer-events: none;
+    }
+    
+    @keyframes gradient-shift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    .hero-pnl .pnl-value {
+        font-size: 4rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-green) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-shadow: 0 0 40px rgba(0, 245, 255, 0.3);
+        margin: 0;
+        line-height: 1.2;
+    }
+    
+    .hero-pnl .pnl-value.negative {
+        background: linear-gradient(135deg, var(--neon-pink) 0%, var(--neon-red) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    
+    .hero-pnl .pnl-label {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        margin-top: 8px;
+    }
+    
+    /* === LIVE TICKER BANNER === */
+    .ticker-banner {
+        background: rgba(16, 24, 40, 0.6);
+        border: 1px solid rgba(0, 245, 255, 0.1);
+        border-radius: 12px;
+        padding: 12px 20px;
+        margin-bottom: 20px;
+        overflow: hidden;
+        position: relative;
+    }
+    
+    .ticker-content {
+        display: flex;
+        gap: 40px;
+        animation: ticker-scroll 30s linear infinite;
+    }
+    
+    .ticker-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+    }
+    
+    .ticker-item.positive { color: var(--neon-green); }
+    .ticker-item.negative { color: var(--neon-pink); }
+    
+    @keyframes ticker-scroll {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+    }
+    
+    /* === STATUS INDICATOR === */
+    .status-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(0, 255, 136, 0.1);
+        border: 1px solid rgba(0, 255, 136, 0.3);
+        padding: 8px 16px;
+        border-radius: 20px;
+        color: var(--neon-green);
+        font-weight: 600;
+    }
+    
+    .status-live::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        background: var(--neon-green);
+        border-radius: 50%;
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    .status-stopped {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255, 68, 68, 0.1);
+        border: 1px solid rgba(255, 68, 68, 0.3);
+        padding: 8px 16px;
+        border-radius: 20px;
+        color: var(--neon-red);
+        font-weight: 600;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(1.2); }
+    }
+    
+    /* === POSITION CARDS === */
+    .position-card {
+        background: var(--bg-card);
+        border: 1px solid rgba(0, 245, 255, 0.1);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 12px;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    
+    .position-card:hover {
+        border-color: var(--neon-cyan);
+        transform: translateX(8px);
+        box-shadow: -4px 0 20px rgba(0, 245, 255, 0.1);
+    }
+    
+    .position-card.profit::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: var(--neon-green);
+        border-radius: 4px 0 0 4px;
+    }
+    
+    .position-card.loss::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: var(--neon-red);
+        border-radius: 4px 0 0 4px;
+    }
+    
+    /* === SCROLLBAR === */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+        background: var(--bg-deep);
+    }
+    
+    ::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, var(--neon-cyan), var(--neon-pink));
+        border-radius: 4px;
+    }
+    
+    /* === EXPANDER === */
+    .streamlit-expanderHeader {
+        background: rgba(16, 24, 40, 0.5) !important;
+        border: 1px solid rgba(0, 245, 255, 0.1) !important;
+        border-radius: 12px !important;
+        color: var(--text-primary) !important;
+    }
+    
+    .streamlit-expanderHeader:hover {
+        border-color: var(--neon-cyan) !important;
+    }
+    
+    /* === SELECT BOX === */
+    [data-baseweb="select"] {
+        background: var(--bg-card) !important;
+        border: 1px solid rgba(0, 245, 255, 0.2) !important;
+        border-radius: 12px !important;
+    }
+    
+    [data-baseweb="select"]:hover {
+        border-color: var(--neon-cyan) !important;
+    }
+    
+    /* === TEXT INPUT === */
+    .stTextInput input, .stNumberInput input {
+        background: var(--bg-card) !important;
+        border: 1px solid rgba(0, 245, 255, 0.2) !important;
+        border-radius: 12px !important;
+        color: var(--text-primary) !important;
+    }
+    
+    .stTextInput input:focus, .stNumberInput input:focus {
+        border-color: var(--neon-cyan) !important;
+        box-shadow: 0 0 15px rgba(0, 245, 255, 0.2) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 

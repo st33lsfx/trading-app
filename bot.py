@@ -10,6 +10,7 @@ from mean_reversion_strategy import MeanReversionStrategy
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
+from telegram_notifier import get_telegram_notifier
 
 load_dotenv()
 
@@ -90,7 +91,7 @@ class TradingBot:
         # Merging Learned Params with Strategy Config
         # Prioritize learned params, but fall back to strategy_config (user/backtest settings)
         self.smart_analyst = get_smart_analyst()  # ZAPNUTO - Rate limits opraveny
-        # instead of hardcoded conservative defaults.
+        self.telegram = get_telegram_notifier()   # Telegram notifications
         
         base_config = self.strategy_config.copy()
         
@@ -109,12 +110,11 @@ class TradingBot:
         # Hardforce some High Volume settings if aggressive mode is ON (and learning hasn't drastically changed them)
         # Hardforce settings if aggressive mode is ON (Override learned params if needed)
         if self.aggressive_mode:
-             # FIX: RSI 55/45 was too loose. 30/70 is too strict.
-             # COMPROMISE: 35/65 for 5m Timeframe (Active but Safe)
-             target_buy = 35
-             target_sell = 65
+             # FIX: Uvolněno na 40/60 pro více signálů (s 60% WR stále profitabilní)
+             target_buy = 40
+             target_sell = 60
              
-             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell} (Overriding learned params)")
+             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell} (Optimized for frequency)")
              base_config["rsi_oversold"] = target_buy
              base_config["rsi_overbought"] = target_sell
              
@@ -127,7 +127,7 @@ class TradingBot:
             "rsi_oversold": base_config.get("rsi_oversold", 40),   # BUY pod 40
             "rsi_overbought": base_config.get("rsi_overbought", 60), # SELL nad 60
             "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-            "min_rr_ratio": base_config.get("min_rr_ratio", 1.2),  # Sníženo z 1.5 pro více obchodů
+            "min_rr_ratio": 0.8,  # SNÍŽENO z 1.2 - více obchodů při 60%+ WR
             "use_trend_filter": False,      # Mean reversion jde proti trendu
             "use_volatility_filter": False, # Vypnuto - blokuje příliš mnoho signálů
             "use_volume_filter": False,
@@ -325,35 +325,92 @@ class TradingBot:
     # === PROFESSIONAL FILTER METHODS ===
 
     def update_trade_amount_compound(self):
-        """Automaticky zvyšuj trade_amount s rostoucím účtem (compounding)."""
+        """
+        SMART COMPOUNDING v2.0
+        - Base: Grow trade_amount with account balance
+        - Streak Adjustment: Reduce after losses, increase after wins
+        - Anti-Tilt: Hard cap after 3+ consecutive losses
+        """
         if not self.compound_profits:
             return
 
         try:
             acc = self.client.get_account_info()
             accounts = acc.get('accounts', [])
-            if accounts:
-                balance = accounts[0].get('balance', {}).get('balance', 0)
-                available = accounts[0].get('balance', {}).get('available', 0)
+            if not accounts:
+                return
+                
+            balance = accounts[0].get('balance', {}).get('balance', 0)
+            available = accounts[0].get('balance', {}).get('available', 0)
 
-                if balance > 0:
-                    # Compound: trade_amount = base_pct * aktuální balance
-                    # Pro agresivní režim: 5-10% účtu per trade
-                    growth_factor = balance / self.base_capital
+            if balance <= 0:
+                return
+                
+            # === BASE COMPOUND ===
+            growth_factor = balance / self.base_capital
+            base_trade_amount = min(
+                available * self.margin_usage_pct / self.max_positions,
+                balance * 0.08  # Max 8% účtu per trade
+            )
+            
+            # === STREAK ADJUSTMENT ===
+            # Track wins/losses
+            wins = getattr(self, 'wins', 0)
+            losses = getattr(self, 'losses', 0)
+            
+            # Calculate current streak
+            if not hasattr(self, '_last_results'):
+                self._last_results = []
+            
+            streak_multiplier = 1.0
+            
+            if len(self._last_results) >= 2:
+                # Check for losing streak
+                recent_losses = sum(1 for r in self._last_results[-3:] if r == 'L')
+                recent_wins = sum(1 for r in self._last_results[-3:] if r == 'W')
+                
+                if recent_losses >= 3:
+                    # ANTI-TILT: 3+ consecutive losses = reduce to 50%
+                    streak_multiplier = 0.5
+                    self.log("🛡️ ANTI-TILT: Reducing position size after loss streak")
+                elif recent_losses >= 2:
+                    # 2 losses = reduce to 75%
+                    streak_multiplier = 0.75
+                elif recent_wins >= 3:
+                    # 3+ wins = boost to 125%
+                    streak_multiplier = 1.25
+                    self.log("🔥 HOT STREAK: Increasing position size")
+                elif recent_wins >= 2:
+                    # 2 wins = boost to 110%
+                    streak_multiplier = 1.1
+            
+            # Apply streak adjustment
+            adjusted_amount = base_trade_amount * streak_multiplier
+            
+            # Clamp to safe limits: Min $3, Max $50
+            self.trade_amount = max(3.0, min(50.0, adjusted_amount))
 
-                    # Základní trade amount roste s účtem
-                    new_trade_amount = min(
-                        available * self.margin_usage_pct / self.max_positions,
-                        balance * 0.10  # Max 10% účtu per trade
-                    )
-
-                    # Minimum $3, max $50 per trade
-                    self.trade_amount = max(3.0, min(50.0, new_trade_amount))
-
-                    if growth_factor > 1.1:  # Účet narostl o 10%+
-                        self.log(f"📈 COMPOUND: Balance ${balance:.2f} (+{(growth_factor-1)*100:.0f}%), Trade amount: ${self.trade_amount:.2f}")
+            if growth_factor > 1.1:
+                self.log(f"📈 COMPOUND: Balance ${balance:.2f} (+{(growth_factor-1)*100:.0f}%), Trade: ${self.trade_amount:.2f} (x{streak_multiplier:.2f})")
         except:
             pass
+    
+    def record_trade_result(self, is_win):
+        """Record trade result for streak tracking."""
+        if not hasattr(self, '_last_results'):
+            self._last_results = []
+        
+        self._last_results.append('W' if is_win else 'L')
+        
+        # Keep only last 10 results
+        if len(self._last_results) > 10:
+            self._last_results.pop(0)
+        
+        # Update counters
+        if is_win:
+            self.wins = getattr(self, 'wins', 0) + 1
+        else:
+            self.losses = getattr(self, 'losses', 0) + 1
 
     def get_optimal_trade_size(self, epic, current_price):
         """Vypočítej optimální velikost pozice pro daný instrument."""
@@ -898,9 +955,9 @@ class TradingBot:
             return False
         
         # ========================================
-        # COOLDOWN - Wait 30 min before trading same instrument again
+        # COOLDOWN - Wait 15 min before trading same instrument again
         # ========================================
-        COOLDOWN_SECONDS = 1800  # 30 minutes
+        COOLDOWN_SECONDS = 900  # 15 minutes (sníženo z 30)
         last_trade = self.last_trade_times.get(yf_ticker, 0)
         if time.time() - last_trade < COOLDOWN_SECONDS:
             remaining = int((COOLDOWN_SECONDS - (time.time() - last_trade)) / 60)
@@ -958,9 +1015,9 @@ class TradingBot:
                  self.log(f"[{yf_ticker}] Skipped (RSI {rsi:.2f}): {reason}")
             
             # ========================================
-            # CONFIDENCE CHECK - Only trade high-confidence signals
+            # CONFIDENCE CHECK - Sníženo pro více obchodů
             # ========================================
-            MIN_CONFIDENCE = 0.6  # Minimum 60% confidence
+            MIN_CONFIDENCE = 0.55  # Sníženo z 0.6 - více signálů projde
             confidence = result.get("confidence", 0)
             
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
@@ -1071,15 +1128,33 @@ class TradingBot:
 
                     try:
                         # Capital Client place_market_order(epic, size, direction, sl, tp)
+                        # TRAILING STOP: Lock in profits as price moves
+                        use_trailing = getattr(self, 'use_trailing_stop', True)
+                        
                         order_result = self.client.place_market_order(
                             t212_ticker,
                             qty,
                             direction=signal,
                             stop_loss=stop_price,
                             take_profit=limit_price,
-                            trailing_stop=False  # Disable trailing - causes issues
+                            trailing_stop=use_trailing,  # ENABLED: Lock in profits
+                            trailing_distance=result.get("atr", 0) * 1.5 if use_trailing else None
                         )
-                        self.log(f"✅ {signal} Order CONFIRMED: {order_result.get('dealReference', 'OK')}")
+                        
+                        trail_msg = " + Trailing" if use_trailing else ""
+                        self.log(f"✅ {signal} Order CONFIRMED{trail_msg}: {order_result.get('dealReference', 'OK')}")
+                        
+                        # 📲 TELEGRAM NOTIFICATION
+                        if hasattr(self, 'telegram') and self.telegram.enabled:
+                            self.telegram.notify_trade(
+                                direction=signal,
+                                ticker=t212_ticker,
+                                qty=qty,
+                                price=last_price,
+                                sl=stop_price,
+                                tp=limit_price
+                            )
+                        
                         self.last_trade_times[yf_ticker] = time.time()
                         return True
                     except Exception as e:

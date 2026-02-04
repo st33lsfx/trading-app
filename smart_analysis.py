@@ -92,10 +92,13 @@ class SmartAnalyst:
                 
             current_vix = hist['Close'].iloc[-1]
             
-            if current_vix > 30:
+            if current_vix > 35:
                 result = (False, f"EXTREME FEAR (VIX {current_vix:.1f})")
-            elif current_vix > 25:
+            elif current_vix > 30:
                 result = (False, f"High Volatility (VIX {current_vix:.1f})")
+            elif current_vix > 25:
+                # Elevated but tradeable - warn only
+                result = (True, f"Elevated VIX ({current_vix:.1f}) ⚠️")
             else:
                 result = (True, f"Market Calm (VIX {current_vix:.1f})")
                 
