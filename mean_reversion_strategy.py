@@ -242,20 +242,21 @@ class MeanReversionStrategy:
             tp = bb_mid
         
         # =============================================
-        # FALLBACK: Extreme RSI without BB requirement
+        # FALLBACK: RSI-only signal without BB requirement
         # =============================================
-        # If RSI is VERY extreme, trade anyway (major reversal potential)
-        elif rsi < 25:  # Extreme oversold - high probability bounce
+        # If RSI is in oversold/overbought zone but no BB touch, still trade
+        # This fixes the "dead zone" where RSI 25-40 was ignored
+        elif rsi < 35:  # Extended from 25 - covers RSI 25-35 zone
             potential_signal = "BUY"
-            base_confidence = 0.7 + (25 - rsi) / 100  # Higher confidence for extremes
-            sl = current_price - (atr * self.atr_sl_mult * 1.5)  # Wider SL for counter-trend
-            tp = current_price + (atr * 2)  # ATR-based TP
+            base_confidence = 0.65 + (35 - rsi) / 100  # Lower confidence without BB
+            sl = current_price - (atr * self.atr_sl_mult * 1.2)  # Slightly wider SL
+            tp = current_price + (atr * 1.5)  # Modest TP
         
-        elif rsi > 75:  # Extreme overbought - high probability drop
+        elif rsi > 65:  # Extended from 75 - covers RSI 65-75 zone
             potential_signal = "SELL"
-            base_confidence = 0.7 + (rsi - 75) / 100
-            sl = current_price + (atr * self.atr_sl_mult * 1.5)
-            tp = current_price - (atr * 2)
+            base_confidence = 0.65 + (rsi - 65) / 100
+            sl = current_price + (atr * self.atr_sl_mult * 1.2)
+            tp = current_price - (atr * 1.5)
 
         # =============================================
         # APPLY FILTERS
