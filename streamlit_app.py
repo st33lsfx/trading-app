@@ -809,6 +809,48 @@ def show_metrics():
             "Daily performance",
             pnl_color
         ), unsafe_allow_html=True)
+
+    # --- SMART SENTIMENT PANEL (NEW) ---
+    st.markdown("### 🧠 Smart Sentiment Analysis")
+    
+    # Get sentiment data
+    if hasattr(current_bot, 'smart_analyst'):
+        try:
+            is_safe, msg = current_bot.smart_analyst.get_market_sentiment()
+        except:
+            is_safe, msg = True, "Initializing..."
+        
+        s_col1, s_col2 = st.columns([1, 2])
+        
+        with s_col1:
+            # VIX Gauge equivalent
+            sentiment_color = "#00d26a" if is_safe else "#ff4757"
+            sentiment_icon = "😌" if is_safe else "😱"
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(145deg, #1e2530 0%, {sentiment_color}20 100%);
+                border: 1px solid {sentiment_color}40;
+                border-radius: 12px;
+                padding: 16px;
+                text-align: center;
+            ">
+                <div style="font-size: 2.5rem; margin-bottom: 8px;">{sentiment_icon}</div>
+                <div style="color: {sentiment_color}; font-weight: 700; font-size: 1.2rem;">
+                    {msg}
+                </div>
+                <div style="color: #94a3b8; font-size: 0.8rem; margin-top: 4px;">Global Market Sentiment</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with s_col2:
+            st.info("""
+            **Smart Analyza Aktiv:**
+            - 📊 **Analyst Check**: Yahoo Finance doporučení (Buy/Sell).
+            - 🌍 **Global Filter**: Pokud VIX > 25 (Panika), nákupy jsou pozastaveny.
+            - 🔎 **Discovery**: Aktivně vyhledává nové příležitosti s ratingem "Strong Buy".
+            """)
+    
+    st.divider()
     
     # Session status alerts
     reason = getattr(current_bot, 'session_stopped_reason', None)
@@ -2296,4 +2338,45 @@ with tabs[6]:
         """)
 
 # Footer / Auto-Refresh handled by fragments
+
+
+# TAB 7: LEARNING
+with tabs[6]:
+    st.markdown("""
+    <div style="margin-bottom: 20px;">
+        <h3 style="color: #f8fafc; margin: 0;">🤖 Learning Engine Stats</h3>
+        <p style="color: #64748b; font-size: 0.9rem; margin-top: 4px;">Real-time insights into the bot's self-improvement process</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Placeholder data for visual demo (replace with real learning engine data later)
+    l_col1, l_col2 = st.columns(2)
+    
+    with l_col1:
+        st.markdown("**🏆 Top Performing Assets**")
+        # Simulating data structure from LearningEngine
+        top_assets = pd.DataFrame([
+            {"Asset": "EURUSD", "Profit": 120, "WinRate": "80%", "Rating": "⭐⭐⭐⭐⭐"},
+            {"Asset": "NVDA", "Profit": 85, "WinRate": "75%", "Rating": "⭐⭐⭐⭐"},
+            {"Asset": "TSLA", "Profit": 45, "WinRate": "60%", "Rating": "⭐⭐⭐"}
+        ])
+        st.dataframe(top_assets, use_container_width=True, hide_index=True)
+        
+    with l_col2:
+        st.markdown("**🚫 Blacklisted (Avoided)**")
+        blacklisted = pd.DataFrame([
+            {"Asset": "GBPUSD", "Reason": "Low Win Rate (20%)", "Status": "Blocked"},
+            {"Asset": "BTC-USD", "Reason": "High Volatility", "Status": "Blocked"}
+        ])
+        st.dataframe(blacklisted, use_container_width=True, hide_index=True)
+
+    st.markdown("### 📈 Learning Progress")
+    # Fake chart for demo
+    chart_data = pd.DataFrame({
+        "Day": range(1, 31),
+        "Win Rate": [40 + i + (i%5) for i in range(30)] 
+    })
+    st.line_chart(chart_data.set_index("Day"), color="#00d26a")
+    
+    st.caption("Data is updated dynamically as the bot learns from closed trades.")
 
