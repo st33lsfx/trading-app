@@ -588,12 +588,13 @@ class TradingBot:
              best_n = max(1, int(max_items * 0.6))
              explore_n = max(1, int(max_items * 0.3))
              
-        fill_n = max_items - best_n - explore_n
-
         watchlist = []
+        
+        # 1. Add Best Candidates (Limit: best_n)
         watchlist.extend(best[:best_n])
         
-        # Smart Exploration: Prioritize unexplored assets with good Analyst Ratings
+        # 2. Smart Exploration (Limit: explore_n)
+        # Prioritize unexplored assets with good Analyst Ratings
         smart_unexplored = []
         regular_unexplored = []
         
@@ -619,20 +620,26 @@ class TradingBot:
              regular_unexplored = unexplored
 
         # Add Smart Picks first
-        needed = explore_n
+        needed_explore = explore_n
         if smart_unexplored:
              self.log(f"🔎 Discovery: Found {len(smart_unexplored)} promising new assets!")
-             take = min(len(smart_unexplored), needed)
+             take = min(len(smart_unexplored), needed_explore)
              watchlist.extend(smart_unexplored[:take])
-             needed -= take
+             needed_explore -= take
              
-        # Fill rest with random exploration
-        if needed > 0 and regular_unexplored:
-             watchlist.extend(regular_unexplored[:needed])
+        # Fill rest of exploration quota with random regular items
+        if needed_explore > 0 and regular_unexplored:
+             watchlist.extend(regular_unexplored[:needed_explore])
 
-        # Fill remaining from rest of pool
-        remaining = [c for c in filtered if c not in watchlist]
-        watchlist.extend(remaining[:fill_n])
+        # 3. Fill the rest of the capacity (Fill Quota)
+        # If 'Best' list was empty (new bot), this will ensure we still have a full watchlist
+        slots_left = max_items - len(watchlist)
+        if slots_left > 0:
+            remaining = [c for c in filtered if c not in watchlist]
+            
+            # For Small Accounts, prefer lower volatility fillers if available? 
+            # For now, just fill up to the limit.
+            watchlist.extend(remaining[:slots_left])
 
         return watchlist[:max_items]
 
