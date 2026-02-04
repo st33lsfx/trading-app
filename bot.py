@@ -960,6 +960,7 @@ class TradingBot:
         
         # Double-check blacklist
         if self.is_blacklisted(yf_ticker) or self.is_blacklisted(t212_ticker):
+            # self.log(f"[{yf_ticker}] Skipped - blacklisted")  # Too noisy
             return False
         
         # ========================================
@@ -969,7 +970,7 @@ class TradingBot:
         last_trade = self.last_trade_times.get(yf_ticker, 0)
         if time.time() - last_trade < COOLDOWN_SECONDS:
             remaining = int((COOLDOWN_SECONDS - (time.time() - last_trade)) / 60)
-            # Silent skip - cooldown active
+            # self.log(f"[{yf_ticker}] Cooldown: {remaining}min remaining")  # Too noisy
             return False
         # ========================================
         
@@ -979,10 +980,10 @@ class TradingBot:
         if self.broker == "capital" and not is_priority:
             try:
                 if not self.client.can_afford_instrument(t212_ticker, self.trade_amount):
-                    # Silent skip - too expensive
+                    self.log(f"[{yf_ticker}] Cannot afford - skipping")
                     return False
-            except:
-                pass  # Continue if check fails
+            except Exception as e:
+                self.log(f"[{yf_ticker}] Affordability check failed: {e}")
 
         try:
             strategy = Strategy(yf_ticker)
