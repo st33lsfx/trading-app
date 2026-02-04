@@ -641,6 +641,17 @@ class TradingBot:
         if self.is_blacklisted(yf_ticker) or self.is_blacklisted(t212_ticker):
             return False
         
+        # ========================================
+        # COOLDOWN - Wait 30 min before trading same instrument again
+        # ========================================
+        COOLDOWN_SECONDS = 1800  # 30 minutes
+        last_trade = self.last_trade_times.get(yf_ticker, 0)
+        if time.time() - last_trade < COOLDOWN_SECONDS:
+            remaining = int((COOLDOWN_SECONDS - (time.time() - last_trade)) / 60)
+            # Silent skip - cooldown active
+            return False
+        # ========================================
+        
         is_priority = ticker_data.get('priority', False)
         
         # Pre-check affordability for Capital.com (saves API calls & time)
@@ -697,6 +708,23 @@ class TradingBot:
                 if len(positions) >= max_pos:
                     self.log(f"[LIMIT] Max positions ({max_pos}) reached. Skipping {t212_ticker}.")
                     return False
+                
+                # ========================================
+                # DUPLICATE PROTECTION - Don't open same instrument twice!
+                # ========================================
+                for p in positions:
+                    existing_epic = ""
+                    if self.broker == "capital":
+                        mkt = p.get('market', {}) or {}
+                        pos = p.get('position', {}) or {}
+                        existing_epic = mkt.get('epic') or pos.get('epic', '')
+                    else:
+                        existing_epic = p.get('ticker', '')
+                    
+                    if existing_epic.upper() == t212_ticker.upper():
+                        self.log(f"[SKIP] Already have position in {t212_ticker}")
+                        return False
+                # ========================================
 
                 self.log(f"[{yf_ticker}] {signal} SIGNAL! RSI: {rsi:.2f} | {reason}")
                 

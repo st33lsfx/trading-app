@@ -1,0 +1,40 @@
+name: Trading Bot (Free 24/7)
+
+on:
+  schedule:
+    # Runs every 10 minutes during trading hours (UTC)
+    # Forex: Sun 22:00 - Fri 22:00 UTC (24/5)
+    # Crypto: 24/7
+    - cron: '*/10 * * * *'  # Every 10 minutes
+  
+  workflow_dispatch:  # Manual trigger button
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8  # Max runtime per execution
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install pandas requests python-dotenv yfinance ta
+      
+      - name: Run Trading Bot (Single Cycle)
+        env:
+          CAPITAL_API_KEY: ${{ secrets.CAPITAL_API_KEY }}
+          CAPITAL_LOGIN: ${{ secrets.CAPITAL_LOGIN }}
+          CAPITAL_PASSWORD: ${{ secrets.CAPITAL_PASSWORD }}
+          CAPITAL_BASE_URL: ${{ secrets.CAPITAL_BASE_URL }}
+          T212_API_KEY: ${{ secrets.T212_API_KEY }}
+          T212_BASE_URL: ${{ secrets.T212_BASE_URL }}
+        run: |
+          python github_bot.py
