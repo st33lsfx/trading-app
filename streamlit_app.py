@@ -1291,6 +1291,90 @@ with tabs[3]:
                         
                         styled = df.style.map(style_pnl, subset=['P&L'])
                         st.dataframe(styled, width="stretch", hide_index=True)
+                    
+                    # === NEW: EQUITY CURVE CHART ===
+                    st.divider()
+                    st.subheader("📈 Equity Curve")
+                    
+                    # Calculate cumulative P&L
+                    pnl_values = [float(t.get('profitAndLoss', 0)) for t in reversed(trades)]
+                    cumulative_pnl = []
+                    running_total = 0
+                    for pnl in pnl_values:
+                        running_total += pnl
+                        cumulative_pnl.append(running_total)
+                    
+                    if cumulative_pnl:
+                        import plotly.graph_objects as go
+                        
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            y=cumulative_pnl,
+                            mode='lines+markers',
+                            fill='tozeroy',
+                            line=dict(color='#00ff88', width=2),
+                            fillcolor='rgba(0, 255, 136, 0.1)',
+                            name='Cumulative P&L'
+                        ))
+                        fig.update_layout(
+                            template='plotly_dark',
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            height=300,
+                            margin=dict(l=20, r=20, t=20, b=20),
+                            xaxis_title="Trade #",
+                            yaxis_title="Cumulative P&L ($)",
+                            showlegend=False
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # === NEW: ASSET PERFORMANCE TABLE ===
+                    st.divider()
+                    st.subheader("🏆 Asset Performance (All Time)")
+                    
+                    # Get learning data
+                    learning_engine = getattr(current_bot, 'learning_engine', None)
+                    if learning_engine:
+                        ticker_stats = learning_engine.ticker_stats
+                        
+                        asset_data = []
+                        for ticker, stats in ticker_stats.items():
+                            trades_count = stats.get('trades', 0)
+                            if trades_count > 0:
+                                asset_data.append({
+                                    "Asset": ticker,
+                                    "Trades": trades_count,
+                                    "W/L": f"{stats.get('wins', 0)}/{stats.get('losses', 0)}",
+                                    "WR%": round(stats.get('win_rate', 0), 1),
+                                    "PF": round(stats.get('profit_factor', 0), 2),
+                                    "P&L": round(stats.get('total_pnl', 0), 2),
+                                    "Status": "🚫" if stats.get('auto_blacklisted') else "✅"
+                                })
+                        
+                        if asset_data:
+                            # Sort by P&L descending
+                            asset_data.sort(key=lambda x: x['P&L'], reverse=True)
+                            asset_df = pd.DataFrame(asset_data)
+                            
+                            def style_asset_row(row):
+                                if row['PF'] >= 1.5:
+                                    return ['color: #00ff88'] * len(row)
+                                elif row['PF'] < 1.0:
+                                    return ['color: #ff4757'] * len(row)
+                                return [''] * len(row)
+                            
+                            styled_assets = asset_df.style.apply(style_asset_row, axis=1)
+                            st.dataframe(styled_assets, use_container_width=True, hide_index=True)
+                            
+                            # Summary metrics
+                            total_trades_all = sum(d['Trades'] for d in asset_data)
+                            profitable_assets = len([d for d in asset_data if d['PF'] > 1])
+                            avg_pf = sum(d['PF'] for d in asset_data) / len(asset_data) if asset_data else 0
+                            
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Total Trades", total_trades_all)
+                            col2.metric("Profitable Assets", f"{profitable_assets}/{len(asset_data)}")
+                            col3.metric("Avg Profit Factor", f"{avg_pf:.2f}")
                 else:
                     st.info("No closed trades in the last 48 hours. Start trading to see performance data.")
                     
