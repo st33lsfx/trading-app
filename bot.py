@@ -1315,9 +1315,11 @@ class TradingBot:
         if len(subset) > MAX_SCAN_PER_CYCLE:
              subset = random.sample(self.open_instruments, MAX_SCAN_PER_CYCLE)
         self.log(f"Scanning {len(subset)} assets...")
-        for item in subset:
+        for i, item in enumerate(subset):
             if not self.is_running:
                 break
+            ticker = item.get('yf', item.get('epic', 'UNKNOWN'))
+            self.log(f"[{i+1}/{len(subset)}] Processing {ticker}...")
             self.process_instrument(item)
             time.sleep(1)
 
