@@ -132,9 +132,9 @@ class TradingBot:
             "rsi_oversold": base_config.get("rsi_oversold", 40),   # BUY pod 40
             "rsi_overbought": base_config.get("rsi_overbought", 60), # SELL nad 60
             "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-            "min_rr_ratio": base_config.get("min_rr_ratio", 1.5),
+            "min_rr_ratio": base_config.get("min_rr_ratio", 1.2),  # Sníženo z 1.5 pro více obchodů
             "use_trend_filter": False,      # Mean reversion jde proti trendu
-            "use_volatility_filter": True,  # Filtruj příliš klidné/divoké trhy
+            "use_volatility_filter": False, # Vypnuto - blokuje příliš mnoho signálů
             "use_volume_filter": False,
             "use_session_filter": False,
         })
@@ -1205,15 +1205,14 @@ class TradingBot:
                  self.enable_shorts = False
 
             self.mean_reversion = MeanReversionStrategy({
-                "rsi_oversold": base_config.get("rsi_oversold", 35),
-                "rsi_overbought": base_config.get("rsi_overbought", 70),
-                "atr_sl_mult": base_config.get("atr_sl_mult", 2.5),
-                "min_rr_ratio": base_config.get("min_rr_ratio", 1.0),
+                "rsi_oversold": base_config.get("rsi_oversold", 40),
+                "rsi_overbought": base_config.get("rsi_overbought", 60),
+                "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
+                "min_rr_ratio": base_config.get("min_rr_ratio", 1.2),
                 "use_trend_filter": False,
-                "use_volatility_filter": True,
+                "use_volatility_filter": False,  # Vypnuto - blokuje signály
                 "use_volume_filter": False,
                 "use_session_filter": False,
-                **base_config
             })
             if not self.aggressive_mode:
                 self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))

@@ -231,7 +231,7 @@
     "rsi_oversold": 40,
     "rsi_overbought": 60,
     "atr_sl_mult": 2.0,
-    "min_rr_ratio": 1.5,
+    "min_rr_ratio": 1.2,
     "enable_shorts": false
   },
   "last_updated": "2026-02-04T15:16:46.606830"
