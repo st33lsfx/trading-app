@@ -14,7 +14,7 @@ from smart_analysis import get_smart_analyst
 load_dotenv()
 
 # Global Configuration - SAFE MODE (v2.0)
-MAX_POSITIONS = 3          # Méně pozic = nižší risk
+MAX_POSITIONS = 5          # Více pozic = větší diverzifikace (požadavek uživatele)
 TRADE_AMOUNT_CZK = 100     # ~$4 per trade
 SL_PCT = 0.01              # 1% SL
 TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
