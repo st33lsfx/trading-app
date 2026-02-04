@@ -69,19 +69,26 @@ class SmartAnalyst:
         Check global market sentiment using VIX and SPY.
         Returns: (is_safe, reason)
         """
-        # Cache for 30 mins
         now = time.time()
+        
+        # 1. Try to get valid cache (Fresh: < 30 mins)
         if 'vix' in self.market_sentiment_cache:
             data, ts = self.market_sentiment_cache['vix']
             if now - ts < 1800:
                 return data
+            # Keep stale data for fallback
+            stale_data = data
+        else:
+            stale_data = None
 
         try:
             # Check VIX (Fear Index)
             vix = yf.Ticker("^VIX")
             hist = vix.history(period="1d")
+            
             if hist.empty:
-                return True, "No VIX data"
+                if stale_data: return stale_data
+                return True, "Sentiment Unavailable"
                 
             current_vix = hist['Close'].iloc[-1]
             
@@ -97,7 +104,12 @@ class SmartAnalyst:
             
         except Exception as e:
             print(f"⚠️ Market Sentiment Error: {e}")
-            return True, "Error checking VIX"
+            # FALBACK: Return stale data if available (better than nothing)
+            if stale_data:
+                return stale_data
+            
+            # LAST RESORT: Assume safe but warn
+            return True, "Sentiment Unavailable (API)"
 
 # Singleton
 _smart_analyst = None

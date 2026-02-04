@@ -61,17 +61,17 @@ class TradingBot:
         # === OPTIMÁLNÍ KONFIGURACE PRO MEAN REVERSION (5m scalping) ===
         # Backtest výsledky: PF 1.4-1.75, Return 20-30%/měsíc na crypto
         self.strategy_config = {
-            "rsi_buy": 40,               # BUY když RSI < 40 (oversold)
-            "rsi_oversold": 40,
-            "rsi_sell": 60,              # SELL když RSI > 60 (overbought)
-            "rsi_overbought": 60,
-            "adx_min": 15,               # Mírný trend filter
-            "risk_reward": 1.5,          # TP = 1.5x SL
-            "atr_sl_mult": 2.0,          # SL na 2x ATR
-            "max_risk_pct": 0.02,        # Max 2% risk per trade
+            "rsi_buy": 30,               # ZPŘÍSNĚNO: BUY až při extrémním propadu (RSI < 30)
+            "rsi_oversold": 30,
+            "rsi_sell": 70,              # ZPŘÍSNĚNO: SELL až na vrcholu (RSI > 70)
+            "rsi_overbought": 70,
+            "adx_min": 20,               # Silnější trend filter
+            "risk_reward": 1.5,
+            "atr_sl_mult": 2.0,
+            "max_risk_pct": 0.02,
             "require_volume": False,
             "require_session": False,
-            "enable_shorts": False,      # VYPNUTO - bezpečnější pro začátek
+            "enable_shorts": True,       # ZAPNUTO: Pro scalping potřebujeme shorts
         }
         
         # === HIGH VOLUME SETTINGS ===
@@ -1194,15 +1194,15 @@ class TradingBot:
 
             # Hardforce some High Volume settings if aggressive mode is ON (same as init)
             if self.aggressive_mode:
-                 current_rsi_buy = base_config.get("rsi_oversold", 35)
-                 current_rsi_sell = base_config.get("rsi_overbought", 70)
+                 # FIX: RSI 55/45 was too loose (buying early).
+                 # Aggressive mode should mean "High Volume but Strict Entry".
                  
-                 if current_rsi_buy < 50:
-                     base_config["rsi_oversold"] = 55
-                 if current_rsi_sell > 50:
-                     base_config["rsi_overbought"] = 45 
-                     
-                 self.enable_shorts = False
+                 # Enforce stricter RSI for mean reversion scalping
+                 base_config["rsi_oversold"] = 30  # Strict oversold
+                 base_config["rsi_overbought"] = 70 # Strict overbought
+                 
+                 # Enable shorts for scalping (both directions profit)
+                 self.enable_shorts = True
 
             self.mean_reversion = MeanReversionStrategy({
                 "rsi_oversold": base_config.get("rsi_oversold", 40),
