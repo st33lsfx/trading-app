@@ -603,7 +603,10 @@ class TradingBot:
             for c in unexplored:
                 # Basic pre-filter to save API calls
                 yf = c.get('yf', '')
-                if not yf or "USD" in yf: # Skip forex/crypto for heavy analyst check (mostly stocks)
+                
+                # STRICT FILTER: Only scan US Stocks for Analyst Ratings
+                # Skip Forex (=X), Crypto (-USD), Commodities (=F)
+                if not yf or "=" in yf or "-" in yf:
                      regular_unexplored.append(c)
                      continue
                      
