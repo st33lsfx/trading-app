@@ -830,7 +830,7 @@ def show_metrics():
 show_metrics()
 
 # Tabs
-tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "🏆 Performance", "🔬 Backtest", "🎯 Strategy Intelligence"])
+tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "🏆 Performance", "🔬 Backtest", "🎯 Strategy Intelligence", "🤖 Learning"])
 
 # TAB 1: AI SCANNER (Live Data + Logs)
 with tabs[0]:
@@ -1799,6 +1799,398 @@ with tabs[5]:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+# TAB 7: LEARNING DASHBOARD
+with tabs[6]:
+    st.markdown("""
+    <div style="margin-bottom: 20px;">
+        <h3 style="color: #f8fafc; margin: 0;">🤖 Self-Learning Dashboard</h3>
+        <p style="color: #64748b; font-size: 0.9rem; margin-top: 4px;">Bot se učí z každého obchodu a automaticky optimalizuje strategii</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Get learning engine from bot
+    learning_engine = getattr(current_bot, 'learning_engine', None)
+    
+    if learning_engine:
+        summary = learning_engine.get_stats_summary()
+        ticker_stats = dict(learning_engine.ticker_stats)
+        learned_params = learning_engine.learned_params
+        
+        # =====================================================
+        # HLAVNÍ METRIKY
+        # =====================================================
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <div style="background: rgba(255,255,255,0.2); padding: 16px; border-radius: 12px; font-size: 2rem;">🧠</div>
+                <div>
+                    <h4 style="color: white; margin: 0; font-size: 1.4rem;">Self-Learning Engine Active</h4>
+                    <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-size: 0.9rem;">
+                        Bot analyzuje každý obchod a automaticky upravuje strategii
+                    </p>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # KPI Cards
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_trades = summary.get('total_trades', 0)
+            st.markdown(f"""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 20px; text-align: center;">
+                <div style="color: #3b82f6; font-size: 2rem; font-weight: 700;">{total_trades}</div>
+                <div style="color: #64748b; font-size: 0.75rem; text-transform: uppercase;">Zaznamenaných obchodů</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            wr = summary.get('overall_win_rate', 0)
+            wr_color = "#00d26a" if wr >= 50 else "#fbbf24" if wr >= 40 else "#ff4757"
+            st.markdown(f"""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 20px; text-align: center;">
+                <div style="color: {wr_color}; font-size: 2rem; font-weight: 700;">{wr:.1f}%</div>
+                <div style="color: #64748b; font-size: 0.75rem; text-transform: uppercase;">Celková úspěšnost</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            total_pnl = summary.get('total_pnl', 0)
+            pnl_color = "#00d26a" if total_pnl >= 0 else "#ff4757"
+            st.markdown(f"""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 20px; text-align: center;">
+                <div style="color: {pnl_color}; font-size: 2rem; font-weight: 700;">${total_pnl:+.2f}</div>
+                <div style="color: #64748b; font-size: 0.75rem; text-transform: uppercase;">Celkový P&L</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col4:
+            blacklisted = summary.get('auto_blacklisted_count', 0)
+            st.markdown(f"""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 20px; text-align: center;">
+                <div style="color: #ff4757; font-size: 2rem; font-weight: 700;">{blacklisted}</div>
+                <div style="color: #64748b; font-size: 0.75rem; text-transform: uppercase;">Auto-blacklisted</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+        
+        # =====================================================
+        # NAUČENÉ PARAMETRY
+        # =====================================================
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 20px;">
+                <h5 style="color: #8b5cf6; margin: 0 0 16px 0;">⚙️ Naučené parametry</h5>
+            """, unsafe_allow_html=True)
+            
+            params_html = ""
+            param_labels = {
+                "rsi_oversold": ("RSI Oversold", "Práh pro BUY signál"),
+                "rsi_overbought": ("RSI Overbought", "Práh pro SELL signál"),
+                "atr_sl_mult": ("ATR SL Multiplier", "Šířka stop-lossu"),
+                "min_confidence": ("Min Confidence", "Minimální jistota signálu"),
+                "enable_shorts": ("SHORT pozice", "Povolit prodej nakrátko"),
+            }
+            
+            for key, value in learned_params.items():
+                label, desc = param_labels.get(key, (key, ""))
+                if isinstance(value, bool):
+                    val_display = "✅ Zapnuto" if value else "❌ Vypnuto"
+                    val_color = "#00d26a" if value else "#ff4757"
+                elif isinstance(value, float):
+                    val_display = f"{value:.2f}"
+                    val_color = "#f8fafc"
+                else:
+                    val_display = str(value)
+                    val_color = "#f8fafc"
+                
+                params_html += f"""
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #2d3748;">
+                    <div>
+                        <div style="color: #f8fafc; font-weight: 500;">{label}</div>
+                        <div style="color: #64748b; font-size: 0.75rem;">{desc}</div>
+                    </div>
+                    <div style="color: {val_color}; font-weight: 600;">{val_display}</div>
+                </div>
+                """
+            
+            st.markdown(params_html + "</div>", unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("""
+            <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 20px;">
+                <h5 style="color: #00d26a; margin: 0 0 16px 0;">📈 Projekce zisku</h5>
+            """, unsafe_allow_html=True)
+            
+            # Calculate projections
+            if total_trades > 0 and total_pnl != 0:
+                avg_pnl_per_trade = total_pnl / total_trades
+                
+                # Estimate trades per day (based on recent activity)
+                trades_per_day = max(1, total_trades / 7)  # Assume 7 days of data
+                
+                daily_projection = avg_pnl_per_trade * trades_per_day
+                weekly_projection = daily_projection * 5  # 5 trading days
+                monthly_projection = daily_projection * 22  # 22 trading days
+                
+                proj_color = "#00d26a" if monthly_projection > 0 else "#ff4757"
+                
+                st.markdown(f"""
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="background: #252d3a; padding: 12px; border-radius: 8px; text-align: center;">
+                        <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">Průměr/obchod</div>
+                        <div style="color: {'#00d26a' if avg_pnl_per_trade > 0 else '#ff4757'}; font-size: 1.2rem; font-weight: 600;">${avg_pnl_per_trade:+.2f}</div>
+                    </div>
+                    <div style="background: #252d3a; padding: 12px; border-radius: 8px; text-align: center;">
+                        <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">Obchodů/den</div>
+                        <div style="color: #3b82f6; font-size: 1.2rem; font-weight: 600;">~{trades_per_day:.1f}</div>
+                    </div>
+                    <div style="background: #252d3a; padding: 12px; border-radius: 8px; text-align: center;">
+                        <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">Týdenní projekce</div>
+                        <div style="color: {proj_color}; font-size: 1.2rem; font-weight: 600;">${weekly_projection:+.2f}</div>
+                    </div>
+                    <div style="background: #252d3a; padding: 12px; border-radius: 8px; text-align: center;">
+                        <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">Měsíční projekce</div>
+                        <div style="color: {proj_color}; font-size: 1.5rem; font-weight: 700;">${monthly_projection:+.2f}</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 16px; padding: 12px; background: {'rgba(0, 210, 106, 0.1)' if monthly_projection > 0 else 'rgba(255, 71, 87, 0.1)'}; border-radius: 8px;">
+                    <div style="color: {'#00d26a' if monthly_projection > 0 else '#ff4757'}; font-size: 0.85rem;">
+                        {'📈' if monthly_projection > 0 else '📉'} S pákou 1:10: <strong>${monthly_projection * 10:+.2f}/měsíc</strong>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="text-align: center; padding: 40px; color: #64748b;">
+                    <div style="font-size: 2rem; margin-bottom: 8px;">📊</div>
+                    <div>Zatím nedostatek dat pro projekci</div>
+                    <div style="font-size: 0.8rem; margin-top: 4px;">Bot potřebuje více obchodů</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown('<div style="height: 24px;"></div>', unsafe_allow_html=True)
+        
+        # =====================================================
+        # VÝKON PODLE TICKERŮ
+        # =====================================================
+        st.markdown("""
+        <div style="background: #1e2530; border: 1px solid #2d3748; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <h5 style="color: #fbbf24; margin: 0 0 16px 0;">📊 Výkon podle tickerů</h5>
+        """, unsafe_allow_html=True)
+        
+        if ticker_stats:
+            # Sort by profit factor
+            sorted_tickers = sorted(
+                ticker_stats.items(),
+                key=lambda x: x[1].get('profit_factor', 0),
+                reverse=True
+            )
+            
+            ticker_rows = ""
+            for ticker, stats in sorted_tickers:
+                if stats.get('trades', 0) == 0:
+                    continue
+                    
+                trades = stats.get('trades', 0)
+                wins = stats.get('wins', 0)
+                wr = stats.get('win_rate', 0)
+                pf = stats.get('profit_factor', 0)
+                pnl = stats.get('total_pnl', 0)
+                is_blacklisted = stats.get('auto_blacklisted', False)
+                blacklist_reason = stats.get('blacklist_reason', '')
+                
+                # Color coding
+                if is_blacklisted:
+                    row_bg = "rgba(255, 71, 87, 0.1)"
+                    status_badge = f'<span style="background: #ff4757; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">BLACKLISTED</span>'
+                elif pf >= 1.5:
+                    row_bg = "rgba(0, 210, 106, 0.1)"
+                    status_badge = f'<span style="background: #00d26a; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">EXCELLENT</span>'
+                elif pf >= 1.0:
+                    row_bg = "rgba(251, 191, 36, 0.1)"
+                    status_badge = f'<span style="background: #fbbf24; color: black; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">PROFITABLE</span>'
+                else:
+                    row_bg = "rgba(148, 163, 184, 0.05)"
+                    status_badge = f'<span style="background: #64748b; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">LOSING</span>'
+                
+                wr_color = "#00d26a" if wr >= 50 else "#fbbf24" if wr >= 40 else "#ff4757"
+                pf_color = "#00d26a" if pf >= 1.5 else "#fbbf24" if pf >= 1.0 else "#ff4757"
+                pnl_color = "#00d26a" if pnl >= 0 else "#ff4757"
+                
+                ticker_rows += f"""
+                <div style="display: grid; grid-template-columns: 1fr 80px 80px 80px 100px 120px; gap: 8px; align-items: center; padding: 12px; background: {row_bg}; border-radius: 8px; margin-bottom: 8px;">
+                    <div>
+                        <div style="color: #f8fafc; font-weight: 600;">{ticker}</div>
+                        <div style="color: #64748b; font-size: 0.7rem;">{blacklist_reason if is_blacklisted else f'{trades} obchodů'}</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: {wr_color}; font-weight: 600;">{wr:.0f}%</div>
+                        <div style="color: #64748b; font-size: 0.65rem;">Win Rate</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: {pf_color}; font-weight: 600;">{pf:.2f}</div>
+                        <div style="color: #64748b; font-size: 0.65rem;">PF</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #f8fafc;">{wins}/{trades}</div>
+                        <div style="color: #64748b; font-size: 0.65rem;">W/L</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: {pnl_color}; font-weight: 600;">${pnl:+.2f}</div>
+                        <div style="color: #64748b; font-size: 0.65rem;">P&L</div>
+                    </div>
+                    <div style="text-align: right;">{status_badge}</div>
+                </div>
+                """
+            
+            if ticker_rows:
+                st.markdown(ticker_rows, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="text-align: center; padding: 20px; color: #64748b;">
+                    Zatím žádné zaznamenané obchody
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="text-align: center; padding: 20px; color: #64748b;">
+                Zatím žádné zaznamenané obchody
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # =====================================================
+        # CO BOT ZMĚNÍ / PROČ
+        # =====================================================
+        st.markdown("""
+        <div style="background: linear-gradient(145deg, #1e2530 0%, #252d3a 100%); border: 1px solid #3b82f640; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <h5 style="color: #3b82f6; margin: 0 0 16px 0;">🔄 Plánované změny (Auto-optimalizace)</h5>
+        """, unsafe_allow_html=True)
+        
+        changes = []
+        
+        # Analyze what bot will change
+        overall_wr = summary.get('overall_win_rate', 50)
+        
+        if overall_wr < 40:
+            changes.append({
+                "change": "Zvýšit selektivitu vstupů",
+                "reason": f"Win rate je pouze {overall_wr:.0f}% (cíl: 50%+)",
+                "action": "Snížit RSI oversold práh → méně, ale kvalitnější signály",
+                "icon": "🎯"
+            })
+        
+        if overall_wr > 60 and total_trades > 10:
+            changes.append({
+                "change": "Mírně uvolnit filtry",
+                "reason": f"Win rate {overall_wr:.0f}% je výborný - můžeme mít více obchodů",
+                "action": "Zvýšit RSI oversold práh → více příležitostí",
+                "icon": "📈"
+            })
+        
+        blacklisted_tickers = learning_engine.get_blacklisted_tickers()
+        if blacklisted_tickers:
+            changes.append({
+                "change": f"Blokovat {len(blacklisted_tickers)} tickerů",
+                "reason": "Opakované ztráty nebo nízká úspěšnost",
+                "action": f"Auto-blacklist: {', '.join(blacklisted_tickers[:5])}{'...' if len(blacklisted_tickers) > 5 else ''}",
+                "icon": "🚫"
+            })
+        
+        # Check shorts performance (simplified)
+        if not learned_params.get('enable_shorts', True):
+            changes.append({
+                "change": "SHORT pozice vypnuty",
+                "reason": "Analýza ukázala nízkou úspěšnost SHORT obchodů",
+                "action": "Bot obchoduje pouze LONG pozice",
+                "icon": "📊"
+            })
+        
+        if not changes:
+            changes.append({
+                "change": "Žádné změny neplánované",
+                "reason": "Současné parametry fungují dobře",
+                "action": "Bot bude pokračovat se stávající konfigurací",
+                "icon": "✅"
+            })
+        
+        for change in changes:
+            st.markdown(f"""
+            <div style="background: #252d3a; border-radius: 10px; padding: 16px; margin-bottom: 12px;">
+                <div style="display: flex; gap: 12px;">
+                    <div style="font-size: 1.5rem;">{change['icon']}</div>
+                    <div style="flex: 1;">
+                        <div style="color: #f8fafc; font-weight: 600; margin-bottom: 4px;">{change['change']}</div>
+                        <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px;">{change['reason']}</div>
+                        <div style="color: #3b82f6; font-size: 0.8rem; background: rgba(59, 130, 246, 0.1); padding: 8px; border-radius: 6px;">
+                            → {change['action']}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # =====================================================
+        # PRAVIDLA UČENÍ
+        # =====================================================
+        with st.expander("📖 Jak se bot učí", expanded=False):
+            st.markdown("""
+            ### Auto-Blacklist pravidla
+            
+            Ticker je automaticky zablokován pokud:
+            - **4+ ztrát v řadě** na stejném tickeru
+            - **Win rate < 35%** po minimálně 5 obchodech
+            - **Profit factor < 0.7** (ztráty převyšují zisky)
+            
+            ### Optimalizace parametrů
+            
+            Bot automaticky upravuje:
+            - **RSI prahy** - podle celkové úspěšnosti
+            - **SHORT/LONG** - vypne SHORT pokud nefunguje
+            - **Confidence threshold** - zvýší pokud je moc ztrát
+            
+            ### Kdy se bot učí
+            
+            - Po každém uzavřeném obchodu
+            - Při startu bota (analýza historie)
+            - Data se ukládají do Supabase (cloud) nebo lokálně
+            
+            ### Reset učení
+            
+            Pokud chcete resetovat naučená data:
+            ```python
+            learning_engine.reset_ticker("GBPUSD")  # Reset jednoho tickeru
+            ```
+            """)
+        
+    else:
+        st.warning("Learning Engine není aktivní. Spusťte bota pro aktivaci učení.")
+        st.markdown("""
+        ### Jak aktivovat Learning Engine:
+        
+        1. Spusťte bota pomocí tlačítka **START**
+        2. Bot automaticky začne zaznamenávat obchody
+        3. Po několika obchodech uvidíte statistiky zde
+        
+        ### Co Learning Engine dělá:
+        
+        - 📊 Sleduje výkon každého tickeru
+        - 🚫 Automaticky blokuje ztrátové tickery
+        - ⚙️ Optimalizuje parametry strategie
+        - 📈 Počítá projekce zisku
+        """)
 
 # Footer / Auto-Refresh handled by fragments
 

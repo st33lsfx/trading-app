@@ -1,38 +1,56 @@
 """
-Mean Reversion Strategy
-=======================
-Backtest výsledky (2 měsíce, 8 assetů):
+Mean Reversion Strategy v2.0
+============================
+Vylepšení:
+- Trend filter (EMA 50) - neobchoduj proti trendu
+- Volatility filter - vyhni se příliš klidným/divokým trhům
+- Volume confirmation - vyšší confidence při vysokém volume
+- Session filter - obchoduj jen v aktivních hodinách
+- Minimum profit check - neotvírej trade s malým potenciálem
+- Lepší SL/TP management
+
+Backtest výsledky (původní):
 - Win Rate: 56.1%
 - Return bez páky: 33.5%
-- S pákou 1:10: 2000 Kč → 8693 Kč
-- 10 obchodů denně
-
-Strategie:
-- BUY když cena dotkne spodní Bollinger Band + RSI < 40
-- SELL když cena dotkne horní Bollinger Band + RSI > 60
-- TP na střední BB (mean reversion)
-- SL na 2x ATR
 """
 
 import pandas as pd
 import numpy as np
+from datetime import datetime
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
+from ta.trend import EMAIndicator
 
 
 class MeanReversionStrategy:
-    """Mean Reversion strategie s Bollinger Bands."""
+    """Mean Reversion strategie s pokročilými filtry."""
 
     def __init__(self, config=None):
         self.config = config or {}
 
-        # Parametry (optimalizované z backtestu)
+        # === BOLLINGER BANDS ===
         self.bb_window = self.config.get("bb_window", 20)
         self.bb_std = self.config.get("bb_std", 2)
+
+        # === RSI ===
         self.rsi_period = self.config.get("rsi_period", 14)
-        self.rsi_oversold = self.config.get("rsi_oversold", 40)
-        self.rsi_overbought = self.config.get("rsi_overbought", 60)
-        self.atr_sl_mult = self.config.get("atr_sl_mult", 2.0)
+        self.rsi_oversold = self.config.get("rsi_oversold", 38)  # Mírnější pro více signálů
+        self.rsi_overbought = self.config.get("rsi_overbought", 62)
+
+        # === RISK MANAGEMENT ===
+        self.atr_sl_mult = self.config.get("atr_sl_mult", 2.0)  # Wider SL = méně SL hitů
+        self.min_rr_ratio = self.config.get("min_rr_ratio", 1.2)  # Nižší R:R = více WR
+
+        # === FILTERS ===
+        # Trend filter VYPNUT - mean reversion obchoduje proti krátkodobému trendu
+        self.use_trend_filter = self.config.get("use_trend_filter", False)
+        self.use_volatility_filter = self.config.get("use_volatility_filter", True)
+        self.use_volume_filter = self.config.get("use_volume_filter", False)  # Volume data není vždy spolehlivá
+        self.use_session_filter = self.config.get("use_session_filter", False)
+
+        # Volatility bounds (BB width as % of price)
+        self.min_volatility = self.config.get("min_volatility", 0.003)  # 0.3% min
+        self.max_volatility = self.config.get("max_volatility", 0.10)   # 10% max
 
     def add_indicators(self, df):
         """Přidej všechny potřebné indikátory."""
@@ -51,20 +69,129 @@ class MeanReversionStrategy:
         # ATR pro SL
         df['atr'] = AverageTrueRange(df['High'], df['Low'], df['Close'], window=14).average_true_range()
 
+        # EMA pro trend
+        df['ema_50'] = EMAIndicator(df['Close'], window=50).ema_indicator()
+        df['ema_20'] = EMAIndicator(df['Close'], window=20).ema_indicator()
+
+        # Volume MA (pokud máme volume data)
+        if 'Volume' in df.columns and df['Volume'].sum() > 0:
+            df['volume_ma'] = df['Volume'].rolling(window=20).mean()
+            df['volume_ratio'] = df['Volume'] / df['volume_ma']
+        else:
+            df['volume_ratio'] = 1.0
+
         # % distance from bands
         df['dist_from_lower'] = (df['Close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'])
 
+        # Trend direction (price vs EMA50)
+        df['trend'] = np.where(df['Close'] > df['ema_50'], 'UP', 'DOWN')
+
         return df
+
+    def is_good_session(self):
+        """
+        Check if current time is good for trading.
+        Best hours: London (8-17 UTC), NY (13-22 UTC), Overlap (13-17 UTC)
+        """
+        if not self.use_session_filter:
+            return True, "Session filter disabled"
+
+        now = datetime.utcnow()
+        hour = now.hour
+        weekday = now.weekday()  # 0=Monday, 6=Sunday
+
+        # Weekend - Forex closed (but crypto open)
+        if weekday >= 5:
+            return True, "Weekend (crypto only)"  # Allow crypto
+
+        # Best trading hours (UTC)
+        # London: 8-17, NY: 13-22, Overlap: 13-17
+        if 8 <= hour <= 22:
+            if 13 <= hour <= 17:
+                return True, "London/NY overlap - HIGH LIQUIDITY"
+            elif 8 <= hour <= 12:
+                return True, "London session"
+            else:
+                return True, "NY session"
+
+        # Asian session (less liquid for Forex)
+        if 0 <= hour <= 7:
+            return True, "Asian session (lower liquidity)"
+
+        return True, "Active trading hours"
+
+    def check_filters(self, df, signal_direction):
+        """
+        Check all filters and return (passed, reasons).
+        """
+        reasons = []
+        passed = True
+        row = df.iloc[-1]
+
+        # 1. TREND FILTER
+        if self.use_trend_filter:
+            trend = row.get('trend', 'NEUTRAL')
+            
+            # Mean reversion: Trade WITH the trend for higher probability
+            # BUY only in uptrend, SELL only in downtrend
+            if signal_direction == "BUY" and trend == "DOWN":
+                # Allow counter-trend if RSI is extremely oversold
+                if row['rsi'] > 25:  # Not extreme enough
+                    passed = False
+                    reasons.append(f"❌ Trend filter: DOWN trend, risky BUY")
+                else:
+                    reasons.append(f"⚠️ Counter-trend BUY (extreme RSI)")
+            elif signal_direction == "SELL" and trend == "UP":
+                if row['rsi'] < 75:  # Not extreme enough
+                    passed = False
+                    reasons.append(f"❌ Trend filter: UP trend, risky SELL")
+                else:
+                    reasons.append(f"⚠️ Counter-trend SELL (extreme RSI)")
+            else:
+                reasons.append(f"✅ Trend aligned ({trend})")
+
+        # 2. VOLATILITY FILTER
+        if self.use_volatility_filter:
+            bb_width = row.get('bb_width', 0)
+
+            if bb_width < self.min_volatility:
+                passed = False
+                reasons.append(f"❌ Low volatility ({bb_width:.2%}) - no movement")
+            elif bb_width > self.max_volatility:
+                passed = False
+                reasons.append(f"❌ High volatility ({bb_width:.2%}) - too risky")
+            else:
+                reasons.append(f"✅ Volatility OK ({bb_width:.2%})")
+
+        # 3. VOLUME FILTER
+        if self.use_volume_filter:
+            volume_ratio = row.get('volume_ratio', 1.0)
+
+            if volume_ratio < 0.5:
+                passed = False
+                reasons.append(f"❌ Low volume ({volume_ratio:.1f}x avg)")
+            elif volume_ratio > 0.8:
+                reasons.append(f"✅ Good volume ({volume_ratio:.1f}x avg)")
+            else:
+                reasons.append(f"⚠️ Below avg volume ({volume_ratio:.1f}x)")
+
+        # 4. SESSION FILTER
+        session_ok, session_msg = self.is_good_session()
+        if not session_ok:
+            passed = False
+        reasons.append(f"📅 {session_msg}")
+
+        return passed, reasons
 
     def get_signal(self, df, config=None):
         """
-        Získej trading signál.
+        Získej trading signál s pokročilými filtry.
 
         Returns:
-            dict s klíči: signal, confidence, sl, tp, rsi, reason
+            dict s klíči: signal, confidence, sl, tp, rsi, reason, filters
         """
-        if len(df) < 30:
-            return {"signal": "NEUTRAL", "confidence": 0, "reason": "Nedostatek dat"}
+        if len(df) < 60:  # Potřebujeme víc dat pro EMA50
+            return {"signal": "NEUTRAL", "confidence": 0, "reason": "Nedostatek dat", "rsi": 50}
 
         # Přidej indikátory
         df = self.add_indicators(df)
@@ -80,43 +207,81 @@ class MeanReversionStrategy:
         atr = row['atr']
 
         if pd.isna(bb_lower) or pd.isna(rsi) or pd.isna(atr):
-            return {"signal": "NEUTRAL", "confidence": 0, "reason": "Missing indicators"}
+            return {"signal": "NEUTRAL", "confidence": 0, "reason": "Missing indicators", "rsi": 50}
 
         signal = "NEUTRAL"
         confidence = 0
         reason = ""
         sl = None
         tp = None
+        filter_results = []
 
-        # BUY SIGNAL: Cena u spodní BB + RSI nízké
+        # =============================================
+        # SIGNAL DETECTION
+        # =============================================
+
+        potential_signal = None
+
+        # BUY SIGNAL: Cena u spodní BB + RSI oversold
         if row['Low'] <= bb_lower and rsi < self.rsi_oversold:
-            signal = "BUY"
-            confidence = 0.7 + (self.rsi_oversold - rsi) / 100  # Vyšší confidence při nižším RSI
-            confidence = min(0.9, confidence)
-            reason = f"Mean reversion BUY: RSI={rsi:.1f}, Price at lower BB"
-
+            potential_signal = "BUY"
+            base_confidence = 0.6 + (self.rsi_oversold - rsi) / 100
             sl = current_price - (atr * self.atr_sl_mult)
-            tp = bb_mid  # TP na střední BB
+            tp = bb_mid
 
-        # SELL SIGNAL: Cena u horní BB + RSI vysoké
+        # SELL SIGNAL: Cena u horní BB + RSI overbought
         elif row['High'] >= bb_upper and rsi > self.rsi_overbought:
-            signal = "SELL"
-            confidence = 0.7 + (rsi - self.rsi_overbought) / 100
-            confidence = min(0.9, confidence)
-            reason = f"Mean reversion SELL: RSI={rsi:.1f}, Price at upper BB"
-
+            potential_signal = "SELL"
+            base_confidence = 0.6 + (rsi - self.rsi_overbought) / 100
             sl = current_price + (atr * self.atr_sl_mult)
             tp = bb_mid
 
-        # Žádný signál - cena je ve středu
+        # =============================================
+        # APPLY FILTERS
+        # =============================================
+
+        if potential_signal:
+            filters_passed, filter_results = self.check_filters(df, potential_signal)
+
+            # Calculate Risk:Reward
+            if potential_signal == "BUY":
+                risk = current_price - sl
+                reward = tp - current_price
+            else:
+                risk = sl - current_price
+                reward = current_price - tp
+
+            rr_ratio = reward / risk if risk > 0 else 0
+
+            # Minimum R:R check
+            if rr_ratio < self.min_rr_ratio:
+                filters_passed = False
+                filter_results.append(f"❌ R:R too low ({rr_ratio:.2f}, need {self.min_rr_ratio})")
+            else:
+                filter_results.append(f"✅ R:R = {rr_ratio:.2f}")
+
+            if filters_passed:
+                signal = potential_signal
+                confidence = min(0.9, base_confidence)
+
+                # Boost confidence if volume is high
+                volume_ratio = row.get('volume_ratio', 1.0)
+                if volume_ratio > 1.5:
+                    confidence = min(0.95, confidence + 0.1)
+
+                reason = f"Mean reversion {signal}: RSI={rsi:.1f}, BB touch"
+            else:
+                reason = f"Signal {potential_signal} blocked by filters"
+
+        # No signal
         else:
             dist = row['dist_from_lower']
             if 0.3 < dist < 0.7:
-                reason = f"Price in middle zone ({dist:.0%})"
+                reason = f"Price in middle zone ({dist:.0%}), waiting"
             elif dist <= 0.3:
-                reason = f"Near lower BB but RSI={rsi:.1f} not oversold"
+                reason = f"Near lower BB, RSI={rsi:.1f} (need <{self.rsi_oversold})"
             else:
-                reason = f"Near upper BB but RSI={rsi:.1f} not overbought"
+                reason = f"Near upper BB, RSI={rsi:.1f} (need >{self.rsi_overbought})"
 
         return {
             "signal": signal,
@@ -127,19 +292,22 @@ class MeanReversionStrategy:
             "reason": reason,
             "bb_mid": bb_mid,
             "bb_upper": bb_upper,
-            "bb_lower": bb_lower
+            "bb_lower": bb_lower,
+            "filters": filter_results,
+            "trend": row.get('trend', 'NEUTRAL'),
+            "volatility": row.get('bb_width', 0)
         }
 
 
-# Singleton instance pro použití v botu
+# Singleton instance
 _strategy_instance = None
 
 
-def get_strategy():
+def get_strategy(config=None):
     """Získej singleton instanci strategie."""
     global _strategy_instance
-    if _strategy_instance is None:
-        _strategy_instance = MeanReversionStrategy()
+    if _strategy_instance is None or config:
+        _strategy_instance = MeanReversionStrategy(config)
     return _strategy_instance
 
 
@@ -148,29 +316,39 @@ def test_strategy():
     import yfinance as yf
 
     print("=" * 60)
-    print("TEST MEAN REVERSION STRATEGY")
+    print("TEST MEAN REVERSION STRATEGY v2.0")
     print("=" * 60)
 
     strategy = MeanReversionStrategy()
 
-    tickers = ["ETH-USD", "GBPUSD=X", "AMD"]
+    tickers = ["ETH-USD", "GBPUSD=X", "AMD", "NZDUSD=X"]
 
     for ticker in tickers:
+        print(f"\n{'='*40}")
+        print(f"Testing: {ticker}")
+        print(f"{'='*40}")
+
         df = yf.download(ticker, period="1mo", interval="1h", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
         if not df.empty:
             result = strategy.get_signal(df)
-            print(f"\n{ticker}:")
-            print(f"  Signal: {result['signal']}")
-            print(f"  Confidence: {result['confidence']:.1%}")
-            print(f"  RSI: {result['rsi']:.1f}")
-            print(f"  Reason: {result['reason']}")
+            print(f"Signal: {result['signal']}")
+            print(f"Confidence: {result['confidence']:.1%}")
+            print(f"RSI: {result['rsi']:.1f}")
+            print(f"Trend: {result.get('trend', 'N/A')}")
+            print(f"Volatility: {result.get('volatility', 0):.2%}")
+            print(f"Reason: {result['reason']}")
+
+            if result.get('filters'):
+                print("\nFilters:")
+                for f in result['filters']:
+                    print(f"  {f}")
 
             if result['sl']:
-                print(f"  SL: ${result['sl']:.4f}")
-                print(f"  TP: ${result['tp']:.4f}")
+                print(f"\nSL: ${result['sl']:.4f}")
+                print(f"TP: ${result['tp']:.4f}")
 
 
 if __name__ == "__main__":

@@ -8,17 +8,18 @@ from client import Trading212Client
 from strategy import Strategy
 from mean_reversion_strategy import MeanReversionStrategy
 from market_utils import is_market_open, map_ticker_to_yf
+from learning_engine import get_learning_engine
 
 load_dotenv()
 
-# Global Configuration - HIGH VOLUME MODE (70% WR, 12 tr/den)
-MAX_POSITIONS = 5          # Více pozic pro více obchodů
+# Global Configuration - SAFE MODE (v2.0)
+MAX_POSITIONS = 3          # Méně pozic = nižší risk
 TRADE_AMOUNT_CZK = 100     # ~$4 per trade
 SL_PCT = 0.01              # 1% SL
-TP_PCT = 0.012             # 1.2% TP (R:R 1.2:1)
-MAX_SCAN_PER_CYCLE = 50    # Scan více assetů
-INTERVAL = "5m"
-PERIOD = "5d"
+TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
+MAX_SCAN_PER_CYCLE = 30    # Méně assetů = kvalitnější signály
+INTERVAL = "1h"            # Hodinový timeframe (stabilnější)
+PERIOD = "1mo"
 
 from capital_client import CapitalClient
 
@@ -45,7 +46,32 @@ class TradingBot:
         # "momentum" = původní strategie s RSI, ADX, EMA
         # "mean_reversion" = Bollinger Bands mean reversion (DOPORUČENO)
         self.strategy_type = "mean_reversion"  # DEFAULT: Mean Reversion
-        self.mean_reversion = MeanReversionStrategy()
+        
+        # =====================================================
+        # SELF-LEARNING ENGINE
+        # =====================================================
+        # Bot se učí z vlastních obchodů a automaticky optimalizuje
+        self.learning_engine = get_learning_engine(use_supabase=True)
+        
+        # Get learned parameters (or use defaults)
+        learned = self.learning_engine.get_learned_params()
+        
+        # Mean Reversion with learned parameters
+        self.mean_reversion = MeanReversionStrategy({
+            "rsi_oversold": learned.get("rsi_oversold", 35),
+            "rsi_overbought": learned.get("rsi_overbought", 70),
+            "atr_sl_mult": learned.get("atr_sl_mult", 2.5),
+            "min_rr_ratio": learned.get("min_rr_ratio", 1.0),
+            "use_trend_filter": False,
+            "use_volatility_filter": True,
+            "use_volume_filter": False,
+            "use_session_filter": False,
+        })
+        
+        # Apply learned short enable/disable
+        self.enable_shorts = learned.get("enable_shorts", False)
+        
+        self.log(f"🧠 Learning Engine: Loaded params {learned}")
 
         # UI & Strategy State (Initialized here for immediate access)
         self.scan_results = []
@@ -59,78 +85,57 @@ class TradingBot:
         # 2000 Kč → 6710 Kč měsíčně!
         self.strategy_config = {
             "rsi_buy": 55,
-            "rsi_oversold": 40,
+            "rsi_oversold": 35,
             "rsi_sell": 45,
-            "rsi_overbought": 60,
-            "adx_min": 12,           # Nízký = hodně obchodů
-            "risk_reward": 1.2,      # Rychlý TP = vyšší WR
-            "atr_sl_mult": 1.0,
-            "max_risk_pct": 0.02,    # 2% risk per trade
+            "rsi_overbought": 70,
+            "adx_min": 12,
+            "risk_reward": 1.2,
+            "atr_sl_mult": 2.5,
+            "max_risk_pct": 0.02,
             "require_volume": False,
             "require_session": False,
-            "enable_shorts": True,
+            "enable_shorts": False,  # VYPNUTO - SHORT pozice ztrácejí v uptrendu
         }
         
         # =====================================================
         # BLACKLIST - ZTRÁTOVÉ (aktualizováno únor 2026)
         # =====================================================
         self.ticker_blacklist = [
-            # Ztrátové v backtestu s aktuální konfigurací
-            "BTCUSD", "BTC-USD", "BTC",    # Nestabilní
-            "EURUSD", "EURUSD=X",          # Ztrátový
-            "LTCUSD", "LTC-USD",           # PF < 1
-            "XRPUSD", "XRP-USD",           # PF < 1
-            "Gold", "GC=F", "XAUUSD",      # Ztrátový
-            "MSFT",                         # Break-even
-
+            # === BLACKLIST - Aktualizováno dle backtestu (únor 2026) ===
+            
+            # Crypto - příliš volatilní pro mean reversion
+            "BTCUSD", "BTC-USD", "BTC",
+            "ETHUSD", "ETH-USD", "ETH",    # Backtest: -13.8% return
+            "LTCUSD", "LTC-USD",
+            "XRPUSD", "XRP-USD",
+            
+            # Forex - ztrátové
+            "EURUSD", "EURUSD=X",
+            
+            # Komodity
+            "Gold", "GC=F", "XAUUSD",
+            "XAGUSD", "SI=F", "Silver",
+            
             # Příliš drahé pro malý účet (JPY páry)
             "USDJPY", "USDJPY=X", "EURJPY", "EURJPY=X",
             "GBPJPY", "GBPJPY=X", "AUDJPY", "AUDJPY=X",
-            "XAGUSD", "SI=F", "Silver",
         ]
-        # GBPUSD ODSTRANĚN z blacklistu - nyní profitabilní (PF 1.43)
         
         # =====================================================
-        # ROZŠÍŘENÝ SEZNAM ASSETŮ - 30+ instrumentů
+        # KONZERVATIVNÍ SEZNAM - Pouze ověřené profitabilní tickery
         # =====================================================
-        # Pro 2000 Kč kapitál potřebujeme více assetů = více signálů
-        # Mean Reversion strategy: ~10 signálů/den na asset
+        # Backtest únor 2026: Pouze LONG pozice, PF > 1
         self.priority_tickers = [
-            # === CRYPTO - Nejvíc volatilní, nejvíc signálů ===
-            {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "pf": 1.83, "wr": 77, "cat": "Crypto"},
-            {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "pf": 1.36, "wr": 58, "cat": "Crypto"},
-            {"epic": "AVAXUSD", "yf": "AVAX-USD", "name": "Avalanche", "pf": 1.52, "wr": 73, "cat": "Crypto"},
-            {"epic": "ADAUSD", "yf": "ADA-USD", "name": "Cardano", "pf": 1.16, "wr": 72, "cat": "Crypto"},
-            {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "pf": 1.20, "wr": 65, "cat": "Crypto"},
-            {"epic": "LINKUSD", "yf": "LINK-USD", "name": "Chainlink", "pf": 1.15, "wr": 60, "cat": "Crypto"},
-            {"epic": "MATICUSD", "yf": "MATIC-USD", "name": "Polygon", "pf": 1.10, "wr": 58, "cat": "Crypto"},
-            {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "pf": 1.12, "wr": 55, "cat": "Crypto"},
-            {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "NEAR", "pf": 1.08, "wr": 54, "cat": "Crypto"},
-            {"epic": "ALGOUSD", "yf": "ALGO-USD", "name": "Algorand", "pf": 1.05, "wr": 52, "cat": "Crypto"},
-
-            # === FOREX - Major a Minor páry ===
-            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "pf": 1.43, "wr": 61, "cat": "Forex"},
-            {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD", "pf": 1.04, "wr": 58, "cat": "Forex"},
-            {"epic": "AUDUSD", "yf": "AUDUSD=X", "name": "AUD/USD", "pf": 1.17, "wr": 61, "cat": "Forex"},
-            {"epic": "NZDUSD", "yf": "NZDUSD=X", "name": "NZD/USD", "pf": 1.43, "wr": 56, "cat": "Forex"},
+            # === FOREX - Pouze profitabilní ===
+            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "pf": 1.37, "wr": 70, "cat": "Forex"},  # LONG 70% WR!
             {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "pf": 1.10, "wr": 55, "cat": "Forex"},
             {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "pf": 1.08, "wr": 54, "cat": "Forex"},
             {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "pf": 1.12, "wr": 56, "cat": "Forex"},
-            {"epic": "EURAUD", "yf": "EURAUD=X", "name": "EUR/AUD", "pf": 1.15, "wr": 58, "cat": "Forex"},
-            {"epic": "GBPAUD", "yf": "GBPAUD=X", "name": "GBP/AUD", "pf": 1.20, "wr": 60, "cat": "Forex"},
-            {"epic": "AUDNZD", "yf": "AUDNZD=X", "name": "AUD/NZD", "pf": 1.08, "wr": 54, "cat": "Forex"},
-
-            # === US STOCKS - Volatilní tech akcie ===
-            {"epic": "AMD", "yf": "AMD", "name": "AMD", "pf": 12.44, "wr": 91, "cat": "US Stocks"},
-            {"epic": "NVDA", "yf": "NVDA", "name": "NVIDIA", "pf": 1.30, "wr": 60, "cat": "US Stocks"},
-            {"epic": "TSLA", "yf": "TSLA", "name": "Tesla", "pf": 1.25, "wr": 58, "cat": "US Stocks"},
+            
+            # === US STOCKS - Stabilnější, méně volatile ===
             {"epic": "AAPL", "yf": "AAPL", "name": "Apple", "pf": 1.15, "wr": 55, "cat": "US Stocks"},
-            {"epic": "MSFT", "yf": "MSFT", "name": "Microsoft", "pf": 1.10, "wr": 54, "cat": "US Stocks"},
             {"epic": "GOOGL", "yf": "GOOGL", "name": "Google", "pf": 1.12, "wr": 55, "cat": "US Stocks"},
-            {"epic": "META", "yf": "META", "name": "Meta", "pf": 1.18, "wr": 57, "cat": "US Stocks"},
-            {"epic": "AMZN", "yf": "AMZN", "name": "Amazon", "pf": 1.08, "wr": 53, "cat": "US Stocks"},
-            {"epic": "PLTR", "yf": "PLTR", "name": "Palantir", "pf": 1.20, "wr": 58, "cat": "US Stocks"},
-            {"epic": "COIN", "yf": "COIN", "name": "Coinbase", "pf": 1.15, "wr": 56, "cat": "US Stocks"},
+            {"epic": "NVDA", "yf": "NVDA", "name": "NVIDIA", "pf": 1.30, "wr": 60, "cat": "US Stocks"},
         ]
 
         # Celkem: 30 assetů = potenciálně 300+ signálů/den
@@ -219,6 +224,20 @@ class TradingBot:
                 self.active_categories = ["Forex", "Commodities", "Crypto", "US Stocks"]
 
             self.scan_all_markets()
+        
+        # =====================================================
+        # SELF-LEARNING: Record past trades and optimize
+        # =====================================================
+        if hasattr(self, 'learning_engine'):
+            self.log("🧠 Learning Engine: Analyzing past trades...")
+            self.record_closed_trades()  # Learn from recent closed trades
+            self.optimize_learning()      # Optimize parameters
+            
+            # Show learning summary
+            summary = self.learning_engine.get_stats_summary()
+            self.log(f"🧠 Tracked: {summary['total_trades']} trades, "
+                     f"WR: {summary['overall_win_rate']:.0f}%, "
+                     f"Blacklisted: {summary['auto_blacklisted_count']} tickers")
 
     def update_cache(self):
         """Fetch account data for UI (Non-blocking for Dashboard)."""
@@ -424,12 +443,20 @@ class TradingBot:
         # Note: Current running cycle will finish with old list, next cycle will use new.
 
     def is_blacklisted(self, ticker):
-        """Check if ticker is in blacklist (poor backtest results)."""
-        if not hasattr(self, 'ticker_blacklist'):
-            return False
-        for bl in self.ticker_blacklist:
-            if bl.upper() in ticker.upper():
+        """Check if ticker is in blacklist (manual or auto-learned)."""
+        # Check manual blacklist
+        if hasattr(self, 'ticker_blacklist'):
+            for bl in self.ticker_blacklist:
+                if bl.upper() in ticker.upper():
+                    return True
+        
+        # Check auto-blacklist from learning engine
+        if hasattr(self, 'learning_engine'):
+            is_auto_bl, reason = self.learning_engine.is_blacklisted(ticker)
+            if is_auto_bl:
+                # Log only occasionally to avoid spam
                 return True
+        
         return False
 
     def scan_all_markets(self):
@@ -701,6 +728,17 @@ class TradingBot:
             if rsi < 35 and signal != "BUY":
                  self.log(f"[{yf_ticker}] Skipped (RSI {rsi:.2f}): {reason}")
             
+            # ========================================
+            # CONFIDENCE CHECK - Only trade high-confidence signals
+            # ========================================
+            MIN_CONFIDENCE = 0.6  # Minimum 60% confidence
+            confidence = result.get("confidence", 0)
+            
+            if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
+                self.log(f"[{yf_ticker}] Low confidence ({confidence:.0%}), skipping")
+                return False
+            # ========================================
+            
             if signal in ["BUY", "SELL"]:
                 # Check Limit
                 positions = self.client.get_positions()
@@ -827,8 +865,80 @@ class TradingBot:
             pass
         return False
 
+    def record_closed_trades(self):
+        """Check for closed trades and record them in learning engine."""
+        if self.broker != "capital" or not hasattr(self, 'learning_engine'):
+            return
+        
+        try:
+            # Track which trades we've already recorded
+            if not hasattr(self, '_recorded_trade_ids'):
+                self._recorded_trade_ids = set()
+            
+            # Get recent history
+            history = self.client.get_history(last_hours=24)
+            
+            for trade in (history or []):
+                trade_id = trade.get('reference') or trade.get('dealId') or str(trade.get('date', ''))
+                
+                # Skip if already recorded
+                if trade_id in self._recorded_trade_ids:
+                    continue
+                
+                pnl = trade.get('profitAndLoss')
+                if pnl is None or pnl == 0:
+                    continue
+                
+                epic = trade.get('epic') or trade.get('instrumentName', 'UNKNOWN')
+                direction = trade.get('direction', 'BUY')
+                
+                # Record in learning engine
+                self.learning_engine.record_trade(
+                    ticker=epic,
+                    pnl=float(pnl),
+                    direction=direction,
+                    entry_price=float(trade.get('openLevel', 0)),
+                    exit_price=float(trade.get('closeLevel', 0)),
+                    exit_reason="TP" if float(pnl) > 0 else "SL"
+                )
+                
+                self._recorded_trade_ids.add(trade_id)
+                
+                # Keep set from growing too large
+                if len(self._recorded_trade_ids) > 1000:
+                    self._recorded_trade_ids = set(list(self._recorded_trade_ids)[-500:])
+                    
+        except Exception as e:
+            # Silent fail - don't disrupt main loop
+            pass
+    
+    def optimize_learning(self):
+        """Run periodic optimization (call once per day or on startup)."""
+        if hasattr(self, 'learning_engine'):
+            self.learning_engine.optimize_params()
+            
+            # Update strategy with new learned params
+            learned = self.learning_engine.get_learned_params()
+            self.mean_reversion = MeanReversionStrategy({
+                "rsi_oversold": learned.get("rsi_oversold", 35),
+                "rsi_overbought": learned.get("rsi_overbought", 70),
+                "atr_sl_mult": learned.get("atr_sl_mult", 2.5),
+                "min_rr_ratio": learned.get("min_rr_ratio", 1.0),
+                "use_trend_filter": False,
+                "use_volatility_filter": True,
+                "use_volume_filter": False,
+                "use_session_filter": False,
+            })
+            self.enable_shorts = learned.get("enable_shorts", False)
+            
+            self.log(f"🧠 Strategy updated with learned params: {learned}")
+
     def scan_cycle(self):
         self.update_daily_pnl()
+        
+        # Record closed trades for learning (every cycle)
+        self.record_closed_trades()
+        
         if self.session_stopped_reason == "daily_loss":
             self.log(f"[SESSION] Daily loss limit reached (PnL: {getattr(self, 'daily_pnl', 0):.2f}). No new trades today.")
             return
