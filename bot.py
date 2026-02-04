@@ -1428,6 +1428,7 @@ class TradingBot:
                     pass # Silently ignore errors in monitoring to not spam logs
         except Exception:
             pass
+    def start_loop(self):
         """Starts the main loop in a thread."""
         if self.is_running: return
         self.is_running = True
