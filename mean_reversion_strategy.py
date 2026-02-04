@@ -18,8 +18,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from ta.momentum import RSIIndicator
+from ta.trend import ADXIndicator, EMAIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
-from ta.trend import EMAIndicator
 
 
 class MeanReversionStrategy:

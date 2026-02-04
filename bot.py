@@ -1211,8 +1211,7 @@ class TradingBot:
                         self.log(f"Order failed: {e}")
                         return False
         except Exception as e:
-            # self.log(f"Error {yf_ticker}: {e}")
-            pass
+            self.log(f"⚠️ Error scanning {yf_ticker}: {e}")
         return False
 
     def record_closed_trades(self):

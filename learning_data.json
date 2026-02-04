@@ -7,8 +7,10 @@
       "total_pnl": 1.49,
       "win_rate": 66.67,
       "profit_factor": 2.01,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "EURCHF=X": {
       "trades": 9,
@@ -17,8 +19,10 @@
       "total_pnl": -1.19,
       "win_rate": 22.22,
       "profit_factor": 0.33,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "NZDUSD=X": {
       "trades": 31,
@@ -27,8 +31,10 @@
       "total_pnl": 2.4,
       "win_rate": 54.84,
       "profit_factor": 1.81,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "CHFJPY=X": {
       "trades": 20,
@@ -37,8 +43,10 @@
       "total_pnl": -0.35,
       "win_rate": 45.0,
       "profit_factor": 0.89,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "EURAUD=X": {
       "trades": 24,
@@ -47,8 +55,10 @@
       "total_pnl": -1.22,
       "win_rate": 33.33,
       "profit_factor": 0.73,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "GBPCHF=X": {
       "trades": 17,
@@ -57,8 +67,10 @@
       "total_pnl": -2.43,
       "win_rate": 29.41,
       "profit_factor": 0.35,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "AUDCAD=X": {
       "trades": 3,
@@ -67,8 +79,10 @@
       "total_pnl": 1.39,
       "win_rate": 66.67,
       "profit_factor": 124.5,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "GBPAUD=X": {
       "trades": 21,
@@ -77,8 +91,10 @@
       "total_pnl": 0.11,
       "win_rate": 38.1,
       "profit_factor": 1.04,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "CADJPY=X": {
       "trades": 19,
@@ -87,8 +103,10 @@
       "total_pnl": -0.35,
       "win_rate": 47.37,
       "profit_factor": 0.9,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "NZDJPY=X": {
       "trades": 16,
@@ -97,8 +115,10 @@
       "total_pnl": 3.22,
       "win_rate": 62.5,
       "profit_factor": 2.5,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "GBPUSD=X": {
       "trades": 28,
@@ -107,8 +127,10 @@
       "total_pnl": 2.03,
       "win_rate": 57.14,
       "profit_factor": 1.88,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "USDCAD=X": {
       "trades": 22,
@@ -117,8 +139,10 @@
       "total_pnl": -2.82,
       "win_rate": 13.64,
       "profit_factor": 0.23,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "USDCHF=X": {
       "trades": 33,
@@ -127,8 +151,10 @@
       "total_pnl": 0.48,
       "win_rate": 39.39,
       "profit_factor": 1.09,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "EURGBP=X": {
       "trades": 17,
@@ -137,8 +163,10 @@
       "total_pnl": 0.01,
       "win_rate": 41.18,
       "profit_factor": 1.01,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "AUDUSD=X": {
       "trades": 24,
@@ -147,8 +175,10 @@
       "total_pnl": 1.9,
       "win_rate": 54.17,
       "profit_factor": 1.73,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "USDMXN=X": {
       "trades": 18,
@@ -157,8 +187,10 @@
       "total_pnl": -1.24,
       "win_rate": 33.33,
       "profit_factor": 0.69,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "AAPL": {
       "trades": 7,
@@ -167,8 +199,10 @@
       "total_pnl": -3.51,
       "win_rate": 14.29,
       "profit_factor": 0.53,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "GOOGL": {
       "trades": 5,
@@ -177,8 +211,10 @@
       "total_pnl": 2.9,
       "win_rate": 60.0,
       "profit_factor": 1.83,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "NVDA": {
       "trades": 6,
@@ -187,8 +223,10 @@
       "total_pnl": 4.71,
       "win_rate": 50.0,
       "profit_factor": 1.78,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "ETH-USD": {
       "trades": 38,
@@ -197,8 +235,10 @@
       "total_pnl": -2.89,
       "win_rate": 34.21,
       "profit_factor": 0.94,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     },
     "BTC-USD": {
       "trades": 42,
@@ -207,9 +247,19 @@
       "total_pnl": 8.29,
       "win_rate": 38.1,
       "profit_factor": 1.27,
+      "last_trade": null,
+      "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "consecutive_losses": 0
+      "blacklist_reason": null
     }
+  },
+  "learned_params": {
+    "rsi_oversold": 40,
+    "rsi_overbought": 60,
+    "atr_sl_mult": 2.0,
+    "min_confidence": 0.6,
+    "enable_shorts": true,
+    "min_rr_ratio": 1.2
   },
   "direction_stats": {
     "BUY": {
@@ -227,12 +277,6 @@
       "profit_factor": 0
     }
   },
-  "learned_params": {
-    "rsi_oversold": 40,
-    "rsi_overbought": 60,
-    "atr_sl_mult": 2.0,
-    "min_rr_ratio": 1.2,
-    "enable_shorts": true
-  },
-  "last_updated": "2026-02-04T15:16:46.606830"
+  "activity_log": [],
+  "last_updated": "2026-02-04T22:33:10.024250"
 }
