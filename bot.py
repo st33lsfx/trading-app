@@ -2,7 +2,7 @@ import time
 import os
 import random
 import threading
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 from client import Trading212Client
 from strategy import Strategy
@@ -11,6 +11,7 @@ from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
 from telegram_notifier import get_telegram_notifier
+from economic_data import get_economic_calendar
 
 load_dotenv()
 
@@ -1090,6 +1091,67 @@ class TradingBot:
                     return False
                 
                 # ========================================
+                # CORRELATION CHECK (Risk Management)
+                # ========================================
+                corr_ok, corr_msg = self.check_correlation(t212_ticker, confidence, positions)
+                if not corr_ok:
+                    self.log(f"[SKIP] {corr_msg}")
+                    return False
+                
+                if not corr_ok:
+                    self.log(f"[SKIP] {corr_msg}")
+                    return False
+                
+                # ========================================
+                # NEWS FILTER (Safety)
+                # ========================================
+                news_ok, news_msg = self.check_news_filter(t212_ticker)
+                if not news_ok:
+                    self.log(f"[SKIP] 🚫 {news_msg}")
+                    return False
+
+                # ========================================
+                # SMART SIZING (Growth)
+                # ========================================
+                # Default Risk
+                risk_pct = getattr(self, 'max_risk_pct', SL_PCT)
+                
+                # Get Stats (Try Epic first as that's what Capital records)
+                stats = self.learning_engine.ticker_stats.get(t212_ticker) or \
+                        self.learning_engine.ticker_stats.get(yf_ticker, {})
+                cons_loss = stats.get('consecutive_losses', 0)
+                pf = stats.get('profit_factor', 0)
+                trades_cnt = stats.get('trades', 0)
+                
+                # Logic:
+                if cons_loss >= 2:
+                    risk_pct *= 0.5 # Half size on losing streak
+                    self.log(f"📉 Sizing: Reduced risk to {risk_pct*100:.2f}% (Loss Streak)")
+                elif pf > 2.0 and trades_cnt >= 5 and cons_loss == 0:
+                    risk_pct *= 1.4 # Boost 40% (approx 1.0% risk)
+                    self.log(f"🚀 Sizing: Boosted risk to {risk_pct*100:.2f}% (High Performance)")
+                
+                # Update Trade Amount for this trade ONLY
+                # self.trade_amount_czk = ... we use self.trade_amount (CZK/USD?)
+                # We need to calculate position size based on SL distance and Risk Amount
+                # BUT current logic uses fixed "trade_amount" (Margin).
+                # We will adjust "trade_amount" directly.
+                
+                adjusted_trade_amount = self.trade_amount
+                if risk_pct != SL_PCT:
+                    # Scale trade amount relative to base risk (0.7% or 1%)
+                    # multiplier = risk_pct / SL_PCT
+                    # adjusted_trade_amount = self.trade_amount * multiplier 
+                    # Simpler: Just override if we had dynamic calculation, but we use fixed amount.
+                    # Let's assume trade_amount is the MARGIN we put in.
+                    # If we reduce risk, we put less margin? 
+                    # NO, risk management means Position Size = (Account * Risk%) / SL_Dist.
+                    # Current bot uses Fixed Trade Amount (Margin).
+                    # So we should scale the Margin Amount.
+                    scaler = risk_pct / SL_PCT
+                    adjusted_trade_amount = self.trade_amount * scaler
+
+                # ========================================
                 # DUPLICATE PROTECTION - Don't open same instrument twice!
                 # ========================================
                 for p in positions:
@@ -1126,14 +1188,14 @@ class TradingBot:
                         max_size = 100000
 
                     # Calculate quantity based on trade amount
-                    raw_qty = self.trade_amount / last_price
+                    raw_qty = adjusted_trade_amount / last_price
                     qty = round(raw_qty, 2)
 
                     # Enforce API minimum
                     if qty < min_size:
                         # Check if we can afford minimum (with margin ~3-5%)
                         min_cost = min_size * last_price * 0.03  # ~3% margin for CFDs
-                        if min_cost > self.trade_amount:
+                        if min_cost > adjusted_trade_amount:
                             self.log(f"Skipping {t212_ticker}: Min size {min_size} needs ${min_cost:.2f} margin")
                             return False
                         qty = min_size
@@ -1305,6 +1367,100 @@ class TradingBot:
             
             self.log(f"🧠 Strategy updated with learned params: RSI {self.mean_reversion.rsi_oversold}/{self.mean_reversion.rsi_overbought}")
 
+    def check_correlation(self, new_ticker, confidence=0.0, positions=None):
+        """
+        Check if we are already exposed to currencies in the new ticker.
+        Returns: (passed: bool, reason: str)
+        """
+        if self.broker != "capital": return True, "" # Only implementing for Forex/Capital for now
+        
+        # Extract currencies from new ticker (e.g. "GBPUSD" -> ["GBP", "USD"])
+        # Simple heuristic: 6 chars = currency pair
+        if len(new_ticker) != 6 and not "=" in new_ticker:
+            return True, "" # Probably Stock/Index - ignore
+            
+        # Clean ticker
+        clean_new = new_ticker.split('=')[0]
+        if len(clean_new) != 6: return True, ""
+        
+        new_curr_1 = clean_new[:3]
+        new_curr_2 = clean_new[3:]
+        
+        # Get open positions
+        if positions is None:
+            try:
+                positions = self.client.get_positions()
+            except:
+                return True, "" # API fail -> permissive
+            
+        for pos in positions:
+            epic = pos.get('epic', '')
+            # Extract currencies from open position
+            # Capital epics are like "GBPUSD"
+            if len(epic) == 6 or (len(epic) > 6 and epic[6:] == "USD"): # Handle basic pairs
+                 # Simplified extraction
+                 existing_curr_1 = epic[:3]
+                 existing_curr_2 = epic[3:6]
+                 
+                 # Check Overlap
+                 # If ANY currency matches, we have exposure
+                 # EXCEPTION: High confidence (>90%) -> Allow stacking
+                 if confidence < 0.90:
+                     if new_curr_1 in [existing_curr_1, existing_curr_2] or \
+                        new_curr_2 in [existing_curr_1, existing_curr_2]:
+                         return False, f"Correlation Conflict: Exposed to {new_curr_1} or {new_curr_2} via {epic}"
+                         
+        return True, ""
+
+    def check_news_filter(self, ticker):
+        """
+        Check if High Impact news is imminent for the ticker's currencies.
+        Returns: (passed: bool, reason: str)
+        """
+        if self.broker != "capital": return True, ""
+        
+        # 1. Cache Check (Update every 60 mins)
+        now = datetime.now()
+        if not hasattr(self, "news_cache") or (now - self.news_cache_time).total_seconds() > 3600:
+             self.log("Fetching Economic Calendar...")
+             self.news_cache = get_economic_calendar()
+             self.news_cache_time = now
+        
+        if self.news_cache.empty:
+            return True, ""
+            
+        # 2. Extract Currencies
+        if len(ticker) != 6 and "=" not in ticker: return True, ""
+        clean = ticker.split('=')[0]
+        currs = [clean[:3], clean[3:]] if len(clean) == 6 else ["USD"]
+        
+        # 3. Filter Events
+        # Time format in DF is "HH:MM" (e.g. "14:30")
+        try:
+            current_hm = now.strftime("%H:%M")
+            current_min = now.hour * 60 + now.minute
+            
+            for index, row in self.news_cache.iterrows():
+                # Filter by Impact & Currency
+                if row['Impact'] != 'High': continue
+                if row['Country'] not in currs and row['Country'] != 'ALL': continue
+                
+                # Check Time
+                event_time_str = row['Time']
+                try:
+                    eh, em = map(int, event_time_str.split(':'))
+                    event_min = eh * 60 + em
+                    
+                    diff = abs(event_min - current_min)
+                    if diff <= 30: # 30 min window
+                        return False, f"News Event: {row['Event']} ({row['Country']}) at {event_time_str}"
+                except:
+                    continue
+        except Exception as e:
+             self.log(f"News Filter Error: {e}")
+             
+        return True, ""
+
     def scan_cycle(self):
         self.update_daily_pnl()
         
@@ -1386,38 +1542,49 @@ class TradingBot:
                     else:
                          atr_est = entry_level * 0.005 # Fallback
                     
-                    # === TRAILING LOGIC ===
-                    
-                    # 1. BREAK EVEN: If Profit > 1.0 ATR (0.5 * Risk)
-                    # Check if SL is already at or better than BE
-                    is_sl_at_be = (direction == "BUY" and current_sl >= entry_level) or \
-                                  (direction == "SELL" and current_sl <= entry_level)
+                    # === ELITE RATCHET TRAILING STOP ===
+                    # Level 1: Profit > 1.0 ATR -> Break Even
+                    # Level 2: Profit > 1.5 ATR -> Lock 0.5 ATR
+                    # Level 3: Profit > 2.0 ATR -> Lock 1.0 ATR (Bank it!)
                     
                     new_sl = None
                     reason = ""
 
-                    # Case A: Move to Break Even
-                    if profit_dist > atr_est and not is_sl_at_be:
-                        new_sl = entry_level
-                        reason = "Break Even"
-                    
-                    # Case B: Lock Profit (Trailing) -> If Profit > 1.5 ATR, lock 0.5 ATR
+                    # Helper to determine desired SL based on direction
+                    def get_desired_sl(offset_atr):
+                        if direction == "BUY": return entry_level + (atr_est * offset_atr)
+                        else: return entry_level - (atr_est * offset_atr)
+
+                    # Check Level 3 first (Highest Priority)
+                    if profit_dist > (atr_est * 2.0):
+                        desired = get_desired_sl(1.0)
+                        # Only move if improvement
+                        if (direction == "BUY" and current_sl < desired) or \
+                           (direction == "SELL" and current_sl > desired):
+                            new_sl = desired
+                            reason = "Ratchet L3: Lock 1.0 ATR"
+
+                    # Check Level 2
                     elif profit_dist > (atr_est * 1.5):
-                        # Desired SL = Entry + 0.5 ATR
-                        if direction == "BUY":
-                            desired_sl = entry_level + (atr_est * 0.5)
-                            if current_sl < desired_sl:
-                                new_sl = desired_sl
-                                reason = "Lock Profit (+0.5 ATR)"
-                        else:
-                            desired_sl = entry_level - (atr_est * 0.5)
-                            if current_sl > desired_sl:
-                                new_sl = desired_sl
-                                reason = "Lock Profit (+0.5 ATR)"
+                        desired = get_desired_sl(0.5)
+                        if (direction == "BUY" and current_sl < desired) or \
+                           (direction == "SELL" and current_sl > desired):
+                            new_sl = desired
+                            reason = "Ratchet L2: Lock 0.5 ATR"
+
+                    # Check Level 1 (Break Even)
+                    elif profit_dist > (atr_est * 1.0):
+                        desired = entry_level
+                        # Check if we are already at LEAST at BE
+                        is_at_least_be = (direction == "BUY" and current_sl >= entry_level) or \
+                                         (direction == "SELL" and current_sl <= entry_level)
+                        if not is_at_least_be:
+                            new_sl = desired
+                            reason = "Ratchet L1: Break Even"
                     
                     # Execute Update
                     if new_sl:
-                        self.log(f"🛡️ Trailing Stop: {epic} -> {reason}")
+                        self.log(f"🛡️ Trailing: {epic} -> {reason}")
                         success = self.client.update_position(deal_id, stop_level=new_sl)
                         if success:
                             self.log(f"✅ SL Updated to {new_sl}")
