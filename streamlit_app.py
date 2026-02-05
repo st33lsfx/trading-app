@@ -657,7 +657,7 @@ st.sidebar.markdown(f"""
 """, unsafe_allow_html=True)
 
 # 1. Trade Amount
-curr_label = "USD" if broker_code == "capital" else "CZK"
+curr_label = "Kč"  # CZK účet
 # For small accounts (~$85 / 2000 CZK): Risk max 5% per trade = ~$4
 # This allows ~20 trades before account is depleted (risk management)
 default_amt = 4.0 if broker_code == "capital" else 100.0
@@ -997,7 +997,7 @@ def show_metrics():
     with col4:
         st.markdown(render_metric_card(
             "💹", "Today's P&L", 
-            f"${daily_pnl:+.2f}",
+            f"{daily_pnl:+.2f} Kč",
             "Daily performance",
             pnl_color
         ), unsafe_allow_html=True)
