@@ -15,9 +15,29 @@ from economic_data import get_economic_calendar
 
 load_dotenv()
 
-# Global Configuration - SAFE MODE (v2.0)
-MAX_POSITIONS = 5          # Více pozic = větší diverzifikace (požadavek uživatele)
-TRADE_AMOUNT_CZK = 200     # ~$8 per trade (změna na žádost uživatele)
+# =====================================================
+# LIVE DEPLOYMENT CONFIGURATION (v3.0)
+# =====================================================
+# BEZPEČNOSTNÍ NASTAVENÍ PRO MALÝ ÚČET (2000 Kč)
+
+# MODE TOGGLE - Změň na False pro LIVE produkci
+DRY_RUN = True  # True = loguje trades bez exekuce, False = skutečné obchody
+
+# API MODE - "demo" nebo "live"
+CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
+
+# ULTRA-CONSERVATIVE SETTINGS (pro první live týden)
+LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
+
+if LIVE_SAFE_MODE:
+    MAX_POSITIONS = 2          # Max 2 současné pozice
+    TRADE_AMOUNT_CZK = 50      # ~$2 per trade (minimální risk)
+    MAX_RISK_PCT = 0.003       # 0.3% kapitálu per trade
+else:
+    MAX_POSITIONS = 5          # Normální režim
+    TRADE_AMOUNT_CZK = 200     # ~$8 per trade
+    MAX_RISK_PCT = 0.01        # 1% risk
+
 SL_PCT = 0.01              # 1% SL
 TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
 MAX_SCAN_PER_CYCLE = 100   # Víc assetů = víc příležitostí
@@ -25,8 +45,8 @@ INTERVAL = "5m"            # 5min timeframe pro scalping
 PERIOD = "5d"              # 5 dní dat pro 5m interval
 
 # Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
-TARGET_WATCHLIST_SIZE = 50  # Zvýšeno z 20 - bot prozkoumá víc assetů
-MIN_TRADES_FOR_RANK = 3     # Min obchodů pro hodnocení
+TARGET_WATCHLIST_SIZE = 50
+MIN_TRADES_FOR_RANK = 3
 
 from capital_client import CapitalClient
 
@@ -34,11 +54,23 @@ class TradingBot:
     def __init__(self, api_key, base_url, broker="t212", cap_login=None, cap_pass=None):
         self.broker = broker
         self.api_key = api_key
-        self.trade_amount = TRADE_AMOUNT_CZK  # Use global config
-        self.small_account_mode = True  # Enable for accounts under $200
-        # Check broker type
+        self.trade_amount = TRADE_AMOUNT_CZK
+        self.small_account_mode = True
+        
+        # === DRY-RUN MODE ===
+        self.dry_run = DRY_RUN
+        self.live_safe_mode = LIVE_SAFE_MODE
+        
+        # === API URL SELECTION ===
+        # Automaticky vybere demo/live URL podle CAPITAL_MODE
         if self.broker == "capital":
-            self.client = CapitalClient(api_key, cap_login, cap_pass, base_url)
+            if CAPITAL_MODE == "live":
+                live_url = os.getenv("CAPITAL_LIVE_URL", "https://api-capital.backend-capital.com")
+                self.client = CapitalClient(api_key, cap_login, cap_pass, live_url)
+                print(f"⚠️ LIVE MODE: Připojeno k {live_url}")
+            else:
+                self.client = CapitalClient(api_key, cap_login, cap_pass, base_url)
+                print(f"🔵 DEMO MODE: Připojeno k {base_url}")
         else:
             self.client = Trading212Client(api_key, base_url)
             
@@ -47,7 +79,7 @@ class TradingBot:
         self.instruments = []
         self.open_instruments = []
         self._thread = None
-        self.max_positions = MAX_POSITIONS  # Can be changed from dashboard
+        self.max_positions = MAX_POSITIONS
 
         # === STRATEGY SELECTION ===
         # "momentum" = původní strategie s RSI, ADX, EMA
@@ -1213,16 +1245,27 @@ class TradingBot:
                     self.log(f"{action_word} {qty} of {t212_ticker} @ ${last_price:.4f} (Min: {min_size})")
                     self.log(f"Protection: SL {stop_price}, TP {limit_price}")
 
+                    # === DRY-RUN MODE CHECK ===
+                    if self.dry_run:
+                        self.log(f"🔵 DRY-RUN: {signal} {qty} {t212_ticker} @ ${last_price:.4f} (SL: {stop_price}, TP: {limit_price})")
+                        self.log(f"🔵 DRY-RUN: Trade NOT executed - dry_run mode active")
+                        
+                        # Telegram notify o dry-run
+                        if hasattr(self, 'telegram') and self.telegram.enabled:
+                            self.telegram.send_message(f"🔵 DRY-RUN: {signal} {t212_ticker} @ ${last_price:.4f}")
+                        
+                        self.last_trade_times[yf_ticker] = time.time()
+                        return True  # Vrať True aby bot pokračoval
+
                     try:
                         # Capital Client place_market_order(epic, size, direction, sl, tp)
-                        # NOTE: trailing_distance removed - not supported by CapitalClient
                         order_result = self.client.place_market_order(
                             t212_ticker,
                             qty,
                             direction=signal,
                             stop_loss=stop_price,
                             take_profit=limit_price,
-                            trailing_stop=False  # Keep disabled - API doesn't support parameters
+                            trailing_stop=False
                         )
                         
                         self.log(f"✅ {signal} Order CONFIRMED: {order_result.get('dealReference', 'OK')}")
