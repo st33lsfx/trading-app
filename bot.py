@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from client import Trading212Client
 from strategy import Strategy
 from mean_reversion_strategy import MeanReversionStrategy
+from hybrid_strategy import HybridStrategy
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
@@ -41,8 +42,8 @@ else:
 SL_PCT = 0.01              # 1% SL
 TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
 MAX_SCAN_PER_CYCLE = 100   # Víc assetů = víc příležitostí
-INTERVAL = "5m"            # 5min timeframe pro scalping
-PERIOD = "5d"              # 5 dní dat pro 5m interval
+INTERVAL = "5m"            # 5min timeframe (+ confirmation candle ochrana)
+PERIOD = "5d"              # 5 dní dat
 
 # Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
 TARGET_WATCHLIST_SIZE = 50
@@ -92,20 +93,20 @@ class TradingBot:
         # Výsledky: 70% WR, 12 obchodů/den, 268 obchodů/měsíc
         # Return: 23.6% bez páky → 236% s pákou 1:10
         # 2000 Kč → 6710 Kč měsíčně!
-        # === OPTIMÁLNÍ KONFIGURACE PRO MEAN REVERSION (5m scalping) ===
-        # Backtest výsledky: PF 1.4-1.75, Return 20-30%/měsíc na crypto
+        # === OPTIMÁLNÍ SETUP + CONFIRMATION CANDLE ===
+        # Původní 5m nastavení s lepším timingem vstupu
         self.strategy_config = {
-            "rsi_buy": 30,               # ZPŘÍSNĚNO: BUY až při extrémním propadu (RSI < 30)
-            "rsi_oversold": 30,
-            "rsi_sell": 70,              # ZPŘÍSNĚNO: SELL až na vrcholu (RSI > 70)
-            "rsi_overbought": 70,
-            "adx_min": 20,               # Silnější trend filter
-            "risk_reward": 1.5,
+            "rsi_buy": 40,               # BUY pod RSI 40
+            "rsi_oversold": 40,
+            "rsi_sell": 60,              # SELL nad RSI 60
+            "rsi_overbought": 60,
+            "adx_min": 20,
+            "risk_reward": 1.5,          # R:R 1.5:1
             "atr_sl_mult": 2.0,
             "max_risk_pct": 0.02,
             "require_volume": False,
             "require_session": False,
-            "enable_shorts": True,       # ZAPNUTO: Pro scalping potřebujeme shorts
+            "enable_shorts": True,
         }
         
         # === HIGH VOLUME SETTINGS ===
@@ -163,21 +164,21 @@ class TradingBot:
              base_config["enable_shorts"] = True
              if learned: learned["enable_shorts"] = True
 
-        # STRATEGY INIT - Všechny filtry VYPNUTÉ pro maximální signály
-        self.mean_reversion = MeanReversionStrategy({
-            "rsi_oversold": base_config.get("rsi_oversold", 40),   # BUY pod 40
-            "rsi_overbought": base_config.get("rsi_overbought", 60), # SELL nad 60
+        # STRATEGY INIT - HybridStrategy automaticky přepíná mezi strategiemi
+        self.hybrid_strategy = HybridStrategy({
+            "rsi_oversold": base_config.get("rsi_oversold", 40),
+            "rsi_overbought": base_config.get("rsi_overbought", 60),
             "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-            "min_rr_ratio": 1.5,  # FIXED: Minimum R:R 1.5 pro profitabilitu
-            "use_trend_filter": False,      # VYPNUTO
-            "use_volatility_filter": False, # VYPNUTO
-            "use_volume_filter": False,     # VYPNUTO  
-            "use_session_filter": False,    # VYPNUTO
+            "min_rr_ratio": 1.5,
+            "adx_min": 25,  # Threshold pro přepínání strategií
         })
+        # Keep mean_reversion as alias for backward compatibility
+        self.mean_reversion = self.hybrid_strategy.mean_reversion
         
         self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))
         
-        self.log(f"🧠 Strategy Initialized. RSI: {self.mean_reversion.rsi_oversold}/{self.mean_reversion.rsi_overbought}")
+        self.log(f"🧠 HybridStrategy Initialized. Regime detection active.")
+        self.log(f"📊 RSI: {self.mean_reversion.rsi_oversold}/{self.mean_reversion.rsi_overbought}")
 
         # UI & Strategy State (Initialized here for immediate access)
         self.scan_results = []
@@ -1050,14 +1051,19 @@ class TradingBot:
                 })
                 return False
 
-            # Vyber strategii podle nastavení
+            # Vyber strategii podle nastavení - HYBRID STRATEGY přepíná automaticky
             if self.strategy_type == "mean_reversion":
-                result = self.mean_reversion.get_signal(df, major_trend=major_trend)
-                signal = result.get("signal")  # Mean reversion vrací "signal" místo "action"
+                # HybridStrategy automaticky přepíná mezi mean reversion a trend following
+                result = self.hybrid_strategy.get_signal(df, major_trend=major_trend)
+                signal = result.get("signal")
+                regime = result.get("regime", "UNKNOWN")
+                strategy_used = result.get("strategy", "MEAN_REVERSION")
             else:
                 df = strategy.calculate_indicators(df)
                 result = strategy.get_signal(df, self.strategy_config)
                 signal = result.get("action")
+                regime = "UNKNOWN"
+                strategy_used = "LEGACY"
             
             # Feed scanner table for dashboard
             ticker_show = yf_ticker
@@ -1421,7 +1427,8 @@ class TradingBot:
                  base_config["min_rr_ratio"] = 0.8
                  self.enable_shorts = True
 
-            self.mean_reversion = MeanReversionStrategy({
+            # Update existing hybrid strategy's mean reversion component
+            self.hybrid_strategy.mean_reversion = MeanReversionStrategy({
                 "rsi_oversold": base_config.get("rsi_oversold", 40),
                 "rsi_overbought": base_config.get("rsi_overbought", 60),
                 "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
@@ -1431,6 +1438,7 @@ class TradingBot:
                 "use_volume_filter": False,
                 "use_session_filter": False,
             })
+            self.mean_reversion = self.hybrid_strategy.mean_reversion  # Update alias
             if not self.aggressive_mode:
                 self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))
             

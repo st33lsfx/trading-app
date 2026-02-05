@@ -254,19 +254,31 @@ class MeanReversionStrategy:
         sl_distance = atr * self.atr_sl_mult  # Default 2.0
         tp_distance = atr * 4.0  # Guarantee 1:2 R:R
 
-        # BUY SIGNAL: Cena blízko spodní BB + RSI oversold
+        # BUY SIGNAL: Cena blízko spodní BB + RSI oversold + CONFIRMATION CANDLE
+        # Confirmation: předchozí svíčka musí uzavřít VÝŠE než otevřela (zelená = obrat nahoru)
+        prev_bullish = prev['Close'] > prev['Open']  # Zelená svíčka
+        prev_bearish = prev['Close'] < prev['Open']  # Červená svíčka
+        
         if row['Low'] <= bb_lower_with_tolerance and rsi < self.rsi_oversold:
-            potential_signal = "BUY"
-            base_confidence = 0.6 + (self.rsi_oversold - rsi) / 100
-            sl = current_price - sl_distance
-            tp = current_price + tp_distance  # ATR-based, NOT bb_mid!
+            if prev_bullish:
+                potential_signal = "BUY"
+                base_confidence = 0.65 + (self.rsi_oversold - rsi) / 100  # Vyšší confidence díky confirmation
+                sl = current_price - sl_distance
+                tp = current_price + tp_distance
+            else:
+                # Čekáme na confirmation - zatím NEUTRAL
+                return {"signal": "NEUTRAL", "confidence": 0, "reason": "⏳ Čekám na potvrzení obratu (zelená svíčka)", "rsi": rsi}
 
-        # SELL SIGNAL: Cena blízko horní BB + RSI overbought
+        # SELL SIGNAL: Cena blízko horní BB + RSI overbought + CONFIRMATION CANDLE
+        # Confirmation: předchozí svíčka musí uzavřít NÍŽE než otevřela (červená = obrat dolů)
         elif row['High'] >= bb_upper_with_tolerance and rsi > self.rsi_overbought:
-            potential_signal = "SELL"
-            base_confidence = 0.6 + (rsi - self.rsi_overbought) / 100
-            sl = current_price + sl_distance
-            tp = current_price - tp_distance  # ATR-based, NOT bb_mid!
+            if prev_bearish:
+                potential_signal = "SELL"
+                base_confidence = 0.65 + (rsi - self.rsi_overbought) / 100
+                sl = current_price + sl_distance
+                tp = current_price - tp_distance
+            else:
+                return {"signal": "NEUTRAL", "confidence": 0, "reason": "⏳ Čekám na potvrzení obratu (červená svíčka)", "rsi": rsi}
         
         # =============================================
         # FALLBACK: RSI-only signal without BB requirement
