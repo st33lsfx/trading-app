@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "ticker_stats": {
     "AUDNZD=X": {
       "trades": 15,
@@ -10,7 +11,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "EURCHF=X": {
       "trades": 9,
@@ -22,7 +29,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "NZDUSD=X": {
       "trades": 31,
@@ -34,7 +47,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "CHFJPY=X": {
       "trades": 20,
@@ -46,7 +65,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "EURAUD=X": {
       "trades": 24,
@@ -58,7 +83,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "GBPCHF=X": {
       "trades": 17,
@@ -70,7 +101,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "AUDCAD=X": {
       "trades": 3,
@@ -82,7 +119,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "GBPAUD=X": {
       "trades": 21,
@@ -94,7 +137,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "CADJPY=X": {
       "trades": 19,
@@ -106,7 +155,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "NZDJPY=X": {
       "trades": 16,
@@ -118,7 +173,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "GBPUSD=X": {
       "trades": 28,
@@ -130,7 +191,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "USDCAD=X": {
       "trades": 22,
@@ -142,7 +209,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "USDCHF=X": {
       "trades": 33,
@@ -154,7 +227,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "EURGBP=X": {
       "trades": 17,
@@ -166,7 +245,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "AUDUSD=X": {
       "trades": 24,
@@ -178,7 +263,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "USDMXN=X": {
       "trades": 18,
@@ -190,7 +281,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "AAPL": {
       "trades": 7,
@@ -202,7 +299,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "GOOGL": {
       "trades": 5,
@@ -214,7 +317,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "NVDA": {
       "trades": 6,
@@ -226,7 +335,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "ETH-USD": {
       "trades": 38,
@@ -238,7 +353,13 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": true,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
     },
     "BTC-USD": {
       "trades": 42,
@@ -250,7 +371,157 @@
       "last_trade": null,
       "consecutive_losses": 0,
       "auto_blacklisted": false,
-      "blacklist_reason": null
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 0.0,
+      "gross_loss": 0.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": []
+    },
+    "GBPUSD": {
+      "trades": 3,
+      "wins": 2,
+      "losses": 1,
+      "total_pnl": 3.0999999999999996,
+      "win_rate": 66.66666666666666,
+      "profit_factor": 3.5833333333333335,
+      "last_trade": "2026-02-05T07:22:57.183665",
+      "consecutive_losses": 1,
+      "auto_blacklisted": false,
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 4.3,
+      "gross_loss": 1.2,
+      "avg_rr": 0.8333333333333334,
+      "rr_history": [
+        2.0,
+        1.5,
+        -1.0
+      ],
+      "trade_history": [
+        {
+          "timestamp": "2026-02-05T07:22:57.182435",
+          "direction": "BUY",
+          "entry_price": 1.25,
+          "exit_price": 1.255,
+          "pnl": 2.5,
+          "exit_reason": "TP",
+          "target_rr": 1.8,
+          "achieved_rr": 2.0,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T07:22:57.183195",
+          "direction": "BUY",
+          "entry_price": 1.251,
+          "exit_price": 1.254,
+          "pnl": 1.8,
+          "exit_reason": "TP",
+          "target_rr": 1.8,
+          "achieved_rr": 1.5,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T07:22:57.183668",
+          "direction": "BUY",
+          "entry_price": 1.252,
+          "exit_price": 1.25,
+          "pnl": -1.2,
+          "exit_reason": "SL",
+          "target_rr": 1.8,
+          "achieved_rr": -1.0,
+          "volatility_atr": null
+        }
+      ]
+    },
+    "ETHUSD": {
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
+      "total_pnl": -2.0999999999999996,
+      "win_rate": 33.33333333333333,
+      "profit_factor": 0.6666666666666667,
+      "last_trade": "2026-02-05T07:22:57.185068",
+      "consecutive_losses": 0,
+      "auto_blacklisted": false,
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 4.2,
+      "gross_loss": 6.3,
+      "avg_rr": 0.20000000000000004,
+      "rr_history": [
+        -0.8,
+        -0.7,
+        2.1
+      ],
+      "trade_history": [
+        {
+          "timestamp": "2026-02-05T07:22:57.184145",
+          "direction": "SELL",
+          "entry_price": 2500,
+          "exit_price": 2520,
+          "pnl": -3.5,
+          "exit_reason": "SL",
+          "target_rr": 2.0,
+          "achieved_rr": -0.8,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T07:22:57.184578",
+          "direction": "SELL",
+          "entry_price": 2510,
+          "exit_price": 2530,
+          "pnl": -2.8,
+          "exit_reason": "SL",
+          "target_rr": 2.0,
+          "achieved_rr": -0.7,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T07:22:57.185070",
+          "direction": "SELL",
+          "entry_price": 2550,
+          "exit_price": 2510,
+          "pnl": 4.2,
+          "exit_reason": "TP",
+          "target_rr": 2.0,
+          "achieved_rr": 2.1,
+          "volatility_atr": null
+        }
+      ]
+    },
+    "AUDUSD": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 1.2,
+      "win_rate": 100.0,
+      "profit_factor": 999.0,
+      "last_trade": "2026-02-05T07:22:57.185572",
+      "consecutive_losses": 0,
+      "auto_blacklisted": false,
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 1.2,
+      "gross_loss": 0.0,
+      "avg_rr": 1.6,
+      "rr_history": [
+        1.6
+      ],
+      "trade_history": [
+        {
+          "timestamp": "2026-02-05T07:22:57.185578",
+          "direction": "BUY",
+          "entry_price": 0.65,
+          "exit_price": 0.652,
+          "pnl": 1.2,
+          "exit_reason": "TP",
+          "target_rr": 1.8,
+          "achieved_rr": 1.6,
+          "volatility_atr": null
+        }
+      ]
     }
   },
   "learned_params": {
@@ -263,20 +534,58 @@
   },
   "direction_stats": {
     "BUY": {
-      "trades": 415,
-      "wins": 174,
-      "losses": 241,
+      "trades": 419,
+      "wins": 177,
+      "losses": 242,
       "win_rate": 41.93,
-      "profit_factor": 1.5
+      "profit_factor": 1.5,
+      "total_pnl": 4.3
     },
     "SELL": {
-      "trades": 0,
-      "wins": 0,
-      "losses": 0,
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
       "win_rate": 0,
-      "profit_factor": 0
+      "profit_factor": 0,
+      "total_pnl": -2.0999999999999996
     }
   },
-  "activity_log": [],
-  "last_updated": "2026-02-04T22:33:10.024250"
+  "activity_log": [
+    {
+      "time": "2026-02-05 07:22",
+      "type": "trade",
+      "message": "GBPUSD BUY PnL $+2.50"
+    },
+    {
+      "time": "2026-02-05 07:22",
+      "type": "trade",
+      "message": "GBPUSD BUY PnL $+1.80"
+    },
+    {
+      "time": "2026-02-05 07:22",
+      "type": "trade",
+      "message": "GBPUSD BUY PnL $-1.20"
+    },
+    {
+      "time": "2026-02-05 07:22",
+      "type": "trade",
+      "message": "ETHUSD SELL PnL $-3.50"
+    },
+    {
+      "time": "2026-02-05 07:22",
+      "type": "trade",
+      "message": "ETHUSD SELL PnL $-2.80"
+    },
+    {
+      "time": "2026-02-05 07:22",
+      "type": "trade",
+      "message": "ETHUSD SELL PnL $+4.20"
+    },
+    {
+      "time": "2026-02-05 07:22",
+      "type": "trade",
+      "message": "AUDUSD BUY PnL $+1.20"
+    }
+  ],
+  "last_updated": "2026-02-05T07:22:57.185584"
 }

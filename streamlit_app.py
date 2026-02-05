@@ -746,6 +746,72 @@ if broker_code == "capital":
     current_bot.max_daily_loss = max_loss
     current_bot.daily_profit_target = profit_target
 
+    # === RISK EXPOSURE GAUGE ===
+    @st.fragment(run_every=5)
+    def show_risk_gauge():
+        try:
+            # Get account info and positions
+            positions = getattr(current_bot, 'cached_positions', []) or current_bot.client.get_positions() or []
+            
+            # Estimate risk at stake
+            total_risk = 0.0
+            for p in positions:
+                if isinstance(p, dict):
+                    pos = p.get('position', {}) or {}
+                    size = abs(float(pos.get('size', 0) or 0))
+                    # Estimate SL distance as 1.5% of position value (typical ATR-based SL)
+                    total_risk += size * 0.015
+            
+            # Get equity
+            equity = 0.0
+            try:
+                if hasattr(current_bot, 'cached_account') and current_bot.cached_account:
+                    accs = current_bot.cached_account.get('accounts', [])
+                    if accs:
+                        equity = float(accs[0].get('balance', {}).get('total', 0) or 0)
+                if equity == 0:
+                    info = current_bot.client.get_account_info()
+                    if info and 'accounts' in info:
+                        equity = float(info['accounts'][0].get('balance', {}).get('total', 0) or 0)
+            except:
+                equity = 100.0  # Fallback
+            
+            # Calculate percentage
+            risk_pct = (total_risk / equity * 100) if equity > 0 else 0
+            risk_pct = min(risk_pct, 100.0)
+            
+            # Determine color
+            if risk_pct < 5:
+                color = "#00ff88"  # Green
+                label = "LOW"
+            elif risk_pct < 10:
+                color = "#fbbf24"  # Yellow
+                label = "MEDIUM"
+            else:
+                color = "#ff4757"  # Red
+                label = "HIGH"
+            
+            st.sidebar.markdown(f"""
+            <div style="margin: 16px 0;">
+                <p style="color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">
+                    ⚡ Risk Exposure
+                </p>
+                <div style="background: #1e2530; border-radius: 8px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                        <span style="color: {color}; font-weight: 700; font-size: 1.1rem;">{risk_pct:.1f}%</span>
+                        <span style="color: {color}; font-size: 0.75rem;">{label}</span>
+                    </div>
+                    <div style="background: #0a0f1c; border-radius: 4px; height: 6px; overflow: hidden;">
+                        <div style="background: {color}; width: {risk_pct}%; height: 100%; border-radius: 4px;"></div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        except Exception:
+            pass
+    
+    show_risk_gauge()
+
     # Strategy Controls
     with st.sidebar.expander("🎯 Strategy Settings", expanded=False):
         cfg = getattr(current_bot, 'strategy_config', {})
@@ -1174,8 +1240,10 @@ with tabs[1]:
         st.session_state.open_positions = positions
         
         if positions:
-            # Use pandas DataFrame instead of HTML
+            # Use pandas DataFrame - Enhanced with R:R and Trailing Status
             data = []
+            from datetime import datetime as dt
+            
             for p in positions:
                 try:
                     if not isinstance(p, dict):
@@ -1183,21 +1251,63 @@ with tabs[1]:
                     if broker_code == 'capital':
                         mkt = p.get('market', {}) or {}
                         pos = p.get('position', {}) or {}
+                        
+                        entry = float(pos.get('level', 0) or 0)
+                        current = float(mkt.get('bid', 0) or 0)
+                        sl = float(pos.get('stopLevel', 0) or 0)
+                        tp = float(pos.get('profitLevel', 0) or 0)
+                        direction = pos.get('direction', 'N/A')
+                        pnl = float(pos.get('upl', 0) or 0)
+                        
+                        # Calculate current R:R
+                        current_rr = 0.0
+                        if entry and sl and entry != sl:
+                            risk_dist = abs(entry - sl)
+                            if direction == 'BUY':
+                                reward_dist = current - entry
+                            else:
+                                reward_dist = entry - current
+                            current_rr = reward_dist / risk_dist if risk_dist > 0 else 0
+                        
+                        # Determine trailing status
+                        trailing_status = "—"
+                        if entry and sl:
+                            if direction == 'BUY' and sl > entry:
+                                trailing_status = "✅ Profit Locked"
+                            elif direction == 'BUY' and abs(sl - entry) < 0.0001:
+                                trailing_status = "🛡️ Break Even"
+                            elif direction == 'SELL' and sl < entry:
+                                trailing_status = "✅ Profit Locked"
+                            elif direction == 'SELL' and abs(sl - entry) < 0.0001:
+                                trailing_status = "🛡️ Break Even"
+                        
+                        # Entry time (if available)
+                        created = pos.get('createdDateUTC', '')
+                        entry_time = ""
+                        try:
+                            if created:
+                                entry_time = created[11:16]  # HH:MM
+                        except:
+                            pass
+                        
                         data.append({
                             "Symbol": mkt.get('epic') or pos.get('epic', 'N/A'),
+                            "Dir": direction[:1],  # B or S
                             "Size": pos.get('size', 0),
-                            "Direction": pos.get('direction', 'N/A'),
-                            "P&L": float(pos.get('upl', 0) or 0),
-                            "Entry": pos.get('level', 0),
-                            "Current": mkt.get('bid', 0)
+                            "P&L": pnl,
+                            "R:R": round(current_rr, 2),
+                            "Trail": trailing_status,
+                            "Entry": entry_time if entry_time else "—",
                         })
                     else:
                         data.append({
                             "Symbol": p.get('ticker', 'N/A'),
+                            "Dir": 'B',
                             "Size": p.get('quantity', 0),
-                            "Direction": 'BUY',
                             "P&L": float(p.get('ppl', 0) or 0),
-                            "Entry": p.get('averagePrice', 0)
+                            "R:R": 0.0,
+                            "Trail": "—",
+                            "Entry": "—",
                         })
                 except Exception:
                     continue
@@ -1214,23 +1324,39 @@ with tabs[1]:
                     except:
                         return ''
                 
+                def style_rr(val):
+                    try:
+                        v = float(val)
+                        if v >= 1.0:
+                            return 'color: #00d26a; font-weight: bold'
+                        elif v > 0:
+                            return 'color: #fbbf24'
+                        elif v < 0:
+                            return 'color: #ff4757'
+                    except:
+                        pass
+                    return ''
+                
                 def style_direction(val):
-                    if val == 'BUY':
+                    if val == 'B':
                         return 'background-color: rgba(0, 210, 106, 0.2); color: #00d26a'
                     return 'background-color: rgba(255, 71, 87, 0.2); color: #ff4757'
                 
-                styled = df.style.map(style_pnl, subset=['P&L']).map(style_direction, subset=['Direction'])
+                styled = df.style.map(style_pnl, subset=['P&L']).map(style_direction, subset=['Dir']).map(style_rr, subset=['R:R'])
                 
                 # Summary metrics
                 total_pnl = sum(d['P&L'] for d in data)
                 winning = len([d for d in data if d['P&L'] > 0])
+                avg_rr = sum(d['R:R'] for d in data) / len(data) if data else 0
+                protected = len([d for d in data if '✅' in d['Trail'] or '🛡️' in d['Trail']])
                 
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Open Positions", len(data))
                 col2.metric("Unrealized P&L", f"${total_pnl:+.2f}", delta="Profit" if total_pnl > 0 else "Loss")
-                col3.metric("Winning", f"{winning}/{len(data)}")
+                col3.metric("Avg R:R", f"{avg_rr:.2f}")
+                col4.metric("Protected", f"{protected}/{len(data)}", delta="Trailing" if protected > 0 else None)
                 
-                st.dataframe(styled, width="stretch", hide_index=True)
+                st.dataframe(styled, use_container_width=True, hide_index=True)
             else:
                 st.info("No valid position data")
         else:
