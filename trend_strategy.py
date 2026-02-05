@@ -18,19 +18,20 @@ from ta.trend import ADXIndicator, EMAIndicator
 from ta.volatility import AverageTrueRange
 
 
+from ta.volume import VolumeWeightedAveragePrice
+
 class TrendStrategy:
-    """Trend Following strategie pro trending trhy."""
+    """Trend Following strategie pro trending trhy (Upgraded 2026)."""
     
     def __init__(self, config=None):
         self.config = config or {}
         
-        # EMA periods
-        self.ema_fast = self.config.get('ema_fast', 8)
-        self.ema_slow = self.config.get('ema_slow', 21)
+        # HMA periods (Fast & Smooth)
+        self.hma_fast = self.config.get('hma_fast', 9)   # Faster than EMA 8
+        self.hma_slow = self.config.get('hma_slow', 21)
         
         # RSI settings
         self.rsi_period = 14
-        self.rsi_trend_threshold = 50  # Above 50 = bullish, below = bearish
         
         # ADX threshold for trend confirmation
         self.adx_min = self.config.get('adx_min', 25)
@@ -38,18 +39,46 @@ class TrendStrategy:
         # Risk management
         self.atr_period = 14
         self.atr_sl_mult = self.config.get('atr_sl_mult', 2.0)
-        self.atr_tp_mult = self.config.get('atr_tp_mult', 4.0)  # R:R 2:1
-        
-        # Minimum R:R ratio
+        self.atr_tp_mult = self.config.get('atr_tp_mult', 4.0)
         self.min_rr_ratio = self.config.get('min_rr_ratio', 2.0)
-    
+
+    def _calculate_wma(self, series, window):
+        """Helper: Weighted Moving Average"""
+        weights = np.arange(1, window + 1)
+        return series.rolling(window).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
+
+    def _calculate_hma(self, series, window):
+        """Calculate Hull Moving Average (Reduces lag)"""
+        half_length = int(window / 2)
+        sqrt_length = int(np.sqrt(window))
+        
+        wma_half = self._calculate_wma(series, half_length)
+        wma_full = self._calculate_wma(series, window)
+        
+        raw_hma = 2 * wma_half - wma_full
+        return self._calculate_wma(raw_hma, sqrt_length)
+
     def add_indicators(self, df):
-        """Přidej indikátory pro trend following."""
+        """Přidej indikátory (HMA, VWAP, ADX, RSI, ATR)."""
         df = df.copy()
         
-        # EMAs
-        df['ema_fast'] = EMAIndicator(df['Close'], window=self.ema_fast).ema_indicator()
-        df['ema_slow'] = EMAIndicator(df['Close'], window=self.ema_slow).ema_indicator()
+        # 1. VWAP (Institutional Value)
+        # Requires High, Low, Close, Volume
+        if 'Volume' in df.columns and df['Volume'].sum() > 0:
+            try:
+                vwap = VolumeWeightedAveragePrice(
+                    high=df['High'], low=df['Low'], close=df["Close"], volume=df['Volume'], window=14
+                )
+                df['vwap'] = vwap.volume_weighted_average_price()
+            except Exception:
+                df['vwap'] = df['Close']
+        else:
+            # Fallback if no volume (e.g. some forex feeds)
+            df['vwap'] = df['Close'] # Neutralizer
+        
+        # 2. HMA (Hull Moving Average) - Faster than EMA
+        df['hma_fast'] = self._calculate_hma(df['Close'], self.hma_fast)
+        df['hma_slow'] = self._calculate_hma(df['Close'], self.hma_slow)
         
         # RSI
         df['rsi'] = RSIIndicator(df['Close'], window=self.rsi_period).rsi()
@@ -63,21 +92,11 @@ class TrendStrategy:
         # ATR
         df['atr'] = AverageTrueRange(df['High'], df['Low'], df['Close'], window=self.atr_period).average_true_range()
         
-        # Trend direction from EMA
-        df['ema_trend'] = np.where(df['ema_fast'] > df['ema_slow'], 'UP', 'DOWN')
-        
-        # EMA crossover detection
-        df['ema_cross_up'] = (df['ema_fast'] > df['ema_slow']) & (df['ema_fast'].shift(1) <= df['ema_slow'].shift(1))
-        df['ema_cross_down'] = (df['ema_fast'] < df['ema_slow']) & (df['ema_fast'].shift(1) >= df['ema_slow'].shift(1))
-        
         return df
     
     def get_signal(self, df, config=None, major_trend="NEUTRAL"):
         """
-        Získej trading signál pro trend following.
-        
-        Returns:
-            dict s klíči: signal, confidence, sl, tp, rsi, reason, filters
+        Získej trading signál (HMA Cross + VWAP Filter).
         """
         if len(df) < 30:
             return {"signal": "NEUTRAL", "confidence": 0, "reason": "Nedostatek dat", "rsi": 50}
@@ -92,8 +111,9 @@ class TrendStrategy:
         adx = row['adx']
         rsi = row['rsi']
         atr = row['atr']
-        ema_fast = row['ema_fast']
-        ema_slow = row['ema_slow']
+        hma_fast = row['hma_fast']
+        hma_slow = row['hma_slow']
+        vwap = row['vwap']
         di_plus = row['di_plus']
         di_minus = row['di_minus']
         
@@ -107,9 +127,7 @@ class TrendStrategy:
         tp = None
         filter_results = []
         
-        # =============================================
         # TREND STRENGTH CHECK
-        # =============================================
         if adx < self.adx_min:
             return {
                 "signal": "NEUTRAL", 
@@ -119,53 +137,47 @@ class TrendStrategy:
                 "adx": adx
             }
         
-        # =============================================
-        # SIGNAL DETECTION - EMA CROSSOVER + MOMENTUM
-        # =============================================
-        
         sl_distance = atr * self.atr_sl_mult
         tp_distance = atr * self.atr_tp_mult
-        
-        # BUY SIGNAL CONDITIONS:
-        # 1. EMA fast > EMA slow (uptrend)
-        # 2. DI+ > DI- (bullish directional movement)
-        # 3. RSI > 50 (bullish momentum)
-        # 4. Confirmation: předchozí svíčka bullish
         
         prev_bullish = prev['Close'] > prev['Open']
         prev_bearish = prev['Close'] < prev['Open']
         
-        if ema_fast > ema_slow and di_plus > di_minus and rsi > 50:
-            if prev_bullish:
+        # === BUY CONDITION ===
+        # 1. HMA Fast > HMA Slow (Trend Up)
+        # 2. Price > VWAP (Institutional Bullish) - NEW 2026
+        # 3. RSI > 50 (Momentum)
+        # 4. Confirmation Candle
+        if hma_fast > hma_slow and current_price > vwap and rsi > 50:
+            if di_plus > di_minus and prev_bullish:
                 signal = "BUY"
-                confidence = 0.6 + (adx - self.adx_min) / 100  # Higher ADX = higher confidence
+                confidence = 0.7 + (adx - self.adx_min) / 100
                 sl = current_price - sl_distance
                 tp = current_price + tp_distance
-                reason = f"Trend BUY: EMA cross up, ADX {adx:.1f}, RSI {rsi:.1f}"
-                filter_results.append(f"✅ Strong uptrend (ADX {adx:.1f})")
-                filter_results.append(f"✅ Bullish momentum (RSI {rsi:.1f})")
-                filter_results.append(f"✅ Confirmation candle (bullish)")
+                reason = f"HMA Cross + VWAP Break: Price > VWAP, HMA Up, ADX {adx:.1f}"
+                filter_results.append(f"✅ Price above VWAP (Institutional Value)")
+                filter_results.append(f"✅ HMA Fast > Slow (Low Lag Trend)")
+                filter_results.append(f"✅ Strong ADX ({adx:.1f})")
             else:
-                return {"signal": "NEUTRAL", "confidence": 0, "reason": "⏳ Čekám na bullish confirmation", "rsi": rsi}
-        
-        # SELL SIGNAL CONDITIONS:
-        # 1. EMA fast < EMA slow (downtrend)
-        # 2. DI- > DI+ (bearish directional movement)
-        # 3. RSI < 50 (bearish momentum)
-        # 4. Confirmation: předchozí svíčka bearish
-        
-        elif ema_fast < ema_slow and di_minus > di_plus and rsi < 50:
-            if prev_bearish:
+                 return {"signal": "NEUTRAL", "confidence": 0, "reason": "Waiting for DI+ or Candle", "rsi": rsi}
+
+        # === SELL CONDITION ===
+        # 1. HMA Fast < HMA Slow (Trend Down)
+        # 2. Price < VWAP (Institutional Bearish) - NEW 2026
+        # 3. RSI < 50
+        # 4. Confirmation Candle
+        elif hma_fast < hma_slow and current_price < vwap and rsi < 50:
+            if di_minus > di_plus and prev_bearish:
                 signal = "SELL"
-                confidence = 0.6 + (adx - self.adx_min) / 100
+                confidence = 0.7 + (adx - self.adx_min) / 100
                 sl = current_price + sl_distance
                 tp = current_price - tp_distance
-                reason = f"Trend SELL: EMA cross down, ADX {adx:.1f}, RSI {rsi:.1f}"
-                filter_results.append(f"✅ Strong downtrend (ADX {adx:.1f})")
-                filter_results.append(f"✅ Bearish momentum (RSI {rsi:.1f})")
-                filter_results.append(f"✅ Confirmation candle (bearish)")
+                reason = f"HMA Cross + VWAP Break: Price < VWAP, HMA Down, ADX {adx:.1f}"
+                filter_results.append(f"✅ Price below VWAP (Institutional Value)")
+                filter_results.append(f"✅ HMA Fast < Slow (Low Lag Trend)")
+                filter_results.append(f"✅ Strong ADX ({adx:.1f})")
             else:
-                return {"signal": "NEUTRAL", "confidence": 0, "reason": "⏳ Čekám na bearish confirmation", "rsi": rsi}
+                 return {"signal": "NEUTRAL", "confidence": 0, "reason": "Waiting for DI- or Candle", "rsi": rsi}
         
         # =============================================
         # R:R VALIDATION
@@ -217,6 +229,10 @@ if __name__ == "__main__":
     # Download test data
     ticker = "EURUSD=X"
     data = yf.download(ticker, period="1mo", interval="1h", progress=False)
+    
+    # Flatten columns
+    if hasattr(data.columns, 'levels'):
+        data.columns = data.columns.get_level_values(0)
     
     strategy = TrendStrategy()
     signal = strategy.get_signal(data)
