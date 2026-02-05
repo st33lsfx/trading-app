@@ -21,7 +21,7 @@ load_dotenv()
 # BEZPEČNOSTNÍ NASTAVENÍ PRO MALÝ ÚČET (2000 Kč)
 
 # MODE TOGGLE - Změň na False pro LIVE produkci
-DRY_RUN = True  # True = loguje trades bez exekuce, False = skutečné obchody
+DRY_RUN = False  # True = loguje trades bez exekuce, False = skutečné obchody
 
 # API MODE - "demo" nebo "live"
 CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
@@ -31,8 +31,8 @@ LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
     MAX_POSITIONS = 2          # Max 2 současné pozice
-    TRADE_AMOUNT_CZK = 50      # ~$2 per trade (minimální risk)
-    MAX_RISK_PCT = 0.003       # 0.3% kapitálu per trade
+    TRADE_AMOUNT_CZK = 175     # ~$7 per trade (zvýšeno z $2 - minimální velikosti aktiv)
+    MAX_RISK_PCT = 0.005       # 0.5% kapitálu per trade
 else:
     MAX_POSITIONS = 5          # Normální režim
     TRADE_AMOUNT_CZK = 200     # ~$8 per trade
@@ -997,14 +997,21 @@ class TradingBot:
             return False
         
         # ========================================
-        # COOLDOWN - Wait 15 min before trading same instrument again
+        # COOLDOWN - Wait 15 min before trading same direction on same instrument
+        # NOVÉ: Povoluje opačný směr (hedging) i během cooldownu
         # ========================================
-        COOLDOWN_SECONDS = 900  # 15 minutes (sníženo z 30)
-        last_trade = self.last_trade_times.get(yf_ticker, 0)
-        if time.time() - last_trade < COOLDOWN_SECONDS:
-            remaining = int((COOLDOWN_SECONDS - (time.time() - last_trade)) / 60)
-            # self.log(f"[{yf_ticker}] Cooldown: {remaining}min remaining")  # Too noisy
-            return False
+        COOLDOWN_SECONDS = 900  # 15 minutes
+        
+        # Uložíme jako tuple: (time, direction) místo jen time
+        last_trade_info = self.last_trade_times.get(yf_ticker)
+        
+        if last_trade_info:
+            last_time, last_direction = last_trade_info if isinstance(last_trade_info, tuple) else (last_trade_info, None)
+            
+            if time.time() - last_time < COOLDOWN_SECONDS:
+                # Cooldown je aktivní - ale povolíme opačný směr
+                # (last_direction bude nastaveno později po signálu, prozatím skip check)
+                pass  # Kontrola směru bude provedena po získání signálu
         # ========================================
         
         is_priority = ticker_data.get('priority', False)
@@ -1110,6 +1117,25 @@ class TradingBot:
             # ========================================
 
             if signal in ["BUY", "SELL"]:
+                # ========================================
+                # DIRECTION-AWARE COOLDOWN CHECK
+                # Povolí opačný směr i během cooldownu (hedging)
+                # ========================================
+                last_trade_info = self.last_trade_times.get(yf_ticker)
+                if last_trade_info:
+                    last_time, last_direction = last_trade_info if isinstance(last_trade_info, tuple) else (last_trade_info, None)
+                    
+                    if time.time() - last_time < 900:  # 15 min cooldown
+                        if last_direction == signal:
+                            # Stejný směr během cooldownu = SKIP
+                            remaining = int((900 - (time.time() - last_time)) / 60)
+                            self.log(f"[{yf_ticker}] Cooldown: {remaining}min (same direction {signal})")
+                            return False
+                        else:
+                            # Opačný směr = POVOLENO (hedging)
+                            self.log(f"[{yf_ticker}] ✅ Hedge povoleno: {last_direction} → {signal}")
+                # ========================================
+
                 # Auto-toggle shorts based on learning
                 if signal == "SELL" and not getattr(self, "enable_shorts", False):
                     self.log(f"[{yf_ticker}] SHORT disabled by learning engine, skipping")
@@ -1254,8 +1280,8 @@ class TradingBot:
                         if hasattr(self, 'telegram') and self.telegram.enabled:
                             self.telegram.send_message(f"🔵 DRY-RUN: {signal} {t212_ticker} @ ${last_price:.4f}")
                         
-                        self.last_trade_times[yf_ticker] = time.time()
-                        return True  # Vrať True aby bot pokračoval
+                        self.last_trade_times[yf_ticker] = (time.time(), signal)  # Uložit směr
+                        return True
 
                     try:
                         # Capital Client place_market_order(epic, size, direction, sl, tp)
@@ -1281,7 +1307,7 @@ class TradingBot:
                                 tp=limit_price
                             )
                         
-                        self.last_trade_times[yf_ticker] = time.time()
+                        self.last_trade_times[yf_ticker] = (time.time(), signal)  # Uložit směr
                         return True
                     except Exception as e:
                         self.log(f"❌ Order REJECTED: {e}")
@@ -1316,7 +1342,7 @@ class TradingBot:
                         self.client.place_stop_order(t212_ticker, -qty, stop_price)
                         self.client.place_limit_order(t212_ticker, -qty, limit_price)
                         self.log(f"Trade Protected (SL: {stop_price}, TP: {limit_price})")
-                        self.last_trade_times[yf_ticker] = time.time()
+                        self.last_trade_times[yf_ticker] = (time.time(), signal)  # Uložit směr
                         return True
                     except Exception as e:
                         self.log(f"Order failed: {e}")
