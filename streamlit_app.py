@@ -614,12 +614,12 @@ c1, c2 = st.sidebar.columns(2)
 
 # Custom button styles via markdown + actual buttons
 with c1:
-    if st.button("▶ START", key=f"start_{broker_code}", use_container_width=True):
+    if st.button("▶ START", key=f"start_{broker_code}"):
         current_bot.start_loop()
         st.rerun()
 
 with c2:
-    if st.button("⏹ STOP", key=f"stop_{broker_code}", use_container_width=True):
+    if st.button("⏹ STOP", key=f"stop_{broker_code}"):
         current_bot.stop_loop()
         st.rerun()
 
@@ -1356,7 +1356,7 @@ with tabs[1]:
                 col3.metric("Avg R:R", f"{avg_rr:.2f}")
                 col4.metric("Protected", f"{protected}/{len(data)}", delta="Trailing" if protected > 0 else None)
                 
-                st.dataframe(styled, use_container_width=True, hide_index=True)
+                st.dataframe(styled, width="stretch", hide_index=True)
             else:
                 st.info("No valid position data")
         else:
@@ -1483,7 +1483,7 @@ with tabs[3]:
                             yaxis_title="Cumulative P&L ($)",
                             showlegend=False
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True)  # plotly_chart still uses old API
                     
                     # === NEW: ASSET PERFORMANCE TABLE ===
                     st.divider()
@@ -1521,7 +1521,7 @@ with tabs[3]:
                                 return [''] * len(row)
                             
                             styled_assets = asset_df.style.apply(style_asset_row, axis=1)
-                            st.dataframe(styled_assets, use_container_width=True, hide_index=True)
+                            st.dataframe(styled_assets, width="stretch", hide_index=True)
                             
                             # Summary metrics
                             total_trades_all = sum(d['Trades'] for d in asset_data)
