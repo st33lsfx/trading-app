@@ -192,54 +192,44 @@ class CapitalClient:
             current_offer = snapshot.get('offer', 0)
             entry_price = current_offer if direction == "BUY" else current_bid
             
+            # R:R Logic Variables
+            actual_sl_distance = 0
+            
             if stop_loss and entry_price > 0:
-                # Validate SL is on correct side
-                if direction == "BUY" and stop_loss >= entry_price:
-                    # SL must be BELOW entry for BUY - fix it
-                    stop_loss = entry_price * 0.995  # 0.5% below
-                elif direction == "SELL" and stop_loss <= entry_price:
-                    # SL must be ABOVE entry for SELL - fix it
-                    stop_loss = entry_price * 1.005  # 0.5% above
-                
-                # Ensure minimum distance (at least 0.5% from entry)
+                # Validate SL Logic
                 min_sl_distance = entry_price * 0.005
-                actual_sl_distance = abs(entry_price - stop_loss)
+                target_sl = stop_loss
                 
-                # If SL is too tight, widen it
-                if actual_sl_distance < min_sl_distance:
-                    if direction == "BUY":
-                        stop_loss = entry_price - min_sl_distance
-                    else:
-                        stop_loss = entry_price + min_sl_distance
-                    actual_sl_distance = min_sl_distance
-                        
+                # Direction Check
+                if direction == "BUY":
+                    if target_sl >= entry_price: target_sl = entry_price * 0.995
+                else: 
+                     if target_sl <= entry_price: target_sl = entry_price * 1.005
+                
+                # Minimum Distance Check
+                current_dist = abs(entry_price - target_sl)
+                if current_dist < min_sl_distance:
+                    print(f"⚠️ SL too tight ({current_dist:.4f}), widening to {min_sl_distance:.4f}")
+                    current_dist = min_sl_distance
+                    if direction == "BUY": target_sl = entry_price - min_sl_distance
+                    else: target_sl = entry_price + min_sl_distance
+                
+                stop_loss = target_sl
+                actual_sl_distance = current_dist
                 data["stopLevel"] = round(stop_loss, 5)
 
-            if take_profit and entry_price > 0:
-                # Calculate implied R:R based on FINAL Stop Loss
-                # Original TP distance?
-                # We should ensure TP is at least 1.5x Risk (Dynamic Adjustment)
-                desired_tp_distance = actual_sl_distance * 1.5
+            if take_profit and entry_price > 0 and actual_sl_distance > 0:
+                # Calculate required TP based on Actual SL
+                min_tp_distance = actual_sl_distance * 1.5
+                current_tp_dist = abs(entry_price - take_profit)
                 
-                if direction == "BUY":
-                    # Current TP distance
-                    current_tp_dist = take_profit - entry_price
-                    # If current TP is too close relative to new SL, push it out
-                    if current_tp_dist < desired_tp_distance:
-                        take_profit = entry_price + desired_tp_distance
-                    
-                    # Basic validation (must be above entry)
-                    if take_profit <= entry_price:
-                        take_profit = entry_price * 1.01
-                        
-                elif direction == "SELL":
-                     current_tp_dist = entry_price - take_profit
-                     if current_tp_dist < desired_tp_distance:
-                         take_profit = entry_price - desired_tp_distance
-                     
-                     if take_profit >= entry_price:
-                         take_profit = entry_price * 0.99
-                    
+                if current_tp_dist < min_tp_distance:
+                    print(f"⚠️ TP too close ({current_tp_dist:.4f}), pushing to {min_tp_distance:.4f} (R:R 1.5)")
+                    if direction == "BUY":
+                        take_profit = entry_price + min_tp_distance
+                    else:
+                        take_profit = entry_price - min_tp_distance
+                
                 data["profitLevel"] = round(take_profit, 5)
                 
         except Exception as e:
