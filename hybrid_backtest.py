@@ -6,6 +6,7 @@ Testuje HybridStrategy na historických datech s realistickou simulací trades.
 import yfinance as yf
 import warnings
 from hybrid_strategy import HybridStrategy
+from learning_engine import get_learning_engine
 warnings.filterwarnings('ignore')
 
 
@@ -25,7 +26,19 @@ def backtest_ticker(ticker, period='30d', interval='5m', verbose=False):
     if hasattr(data.columns, 'levels'):
         data.columns = data.columns.get_level_values(0)
     
-    strategy = HybridStrategy()
+    # Load learned params
+    le = get_learning_engine()
+    learned_params = le.get_learned_params()
+    
+    # Apply params
+    config = {}
+    if learned_params:
+         config.update(learned_params)
+         # Ensure strategy keys match
+         if "rsi_oversold" in learned_params: config["rsi_oversold"] = learned_params["rsi_oversold"]
+         if "rsi_overbought" in learned_params: config["rsi_overbought"] = learned_params["rsi_overbought"]
+    
+    strategy = HybridStrategy(config)
     
     trades = []
     position = None
