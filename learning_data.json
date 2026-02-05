@@ -394,11 +394,7 @@
       "gross_profit": 4.3,
       "gross_loss": 1.2,
       "avg_rr": 0.8333333333333334,
-      "rr_history": [
-        2.0,
-        1.5,
-        -1.0
-      ],
+      "rr_history": [2.0, 1.5, -1.0],
       "trade_history": [
         {
           "timestamp": "2026-02-05T07:22:57.182435",
@@ -450,11 +446,7 @@
       "gross_profit": 4.2,
       "gross_loss": 6.3,
       "avg_rr": 0.20000000000000004,
-      "rr_history": [
-        -0.8,
-        -0.7,
-        2.1
-      ],
+      "rr_history": [-0.8, -0.7, 2.1],
       "trade_history": [
         {
           "timestamp": "2026-02-05T07:22:57.184145",
@@ -506,9 +498,7 @@
       "gross_profit": 1.2,
       "gross_loss": 0.0,
       "avg_rr": 1.6,
-      "rr_history": [
-        1.6
-      ],
+      "rr_history": [1.6],
       "trade_history": [
         {
           "timestamp": "2026-02-05T07:22:57.185578",
@@ -530,7 +520,7 @@
     "atr_sl_mult": 2.0,
     "min_confidence": 0.6,
     "enable_shorts": true,
-    "min_rr_ratio": 1.2
+    "min_rr_ratio": 1.5
   },
   "direction_stats": {
     "BUY": {

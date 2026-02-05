@@ -39,7 +39,7 @@ class MeanReversionStrategy:
 
         # === RISK MANAGEMENT ===
         self.atr_sl_mult = self.config.get("atr_sl_mult", 2.0)  # Wider SL = méně SL hitů
-        self.min_rr_ratio = self.config.get("min_rr_ratio", 1.2)  # Nižší R:R = více WR
+        self.min_rr_ratio = self.config.get("min_rr_ratio", 1.5)  # FIXED: Min R:R 1.5 pro ziskovost
 
         # === FILTERS ===
         # Trend filter VYPNUT - mean reversion obchoduje proti krátkodobému trendu

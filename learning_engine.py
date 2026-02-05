@@ -71,7 +71,7 @@ class LearningEngine:
             "atr_sl_mult": 2.0,
             "min_confidence": 0.6,
             "enable_shorts": True,
-            "min_rr_ratio": 0.8,
+            "min_rr_ratio": 1.5,  # FIXED: Minimum R:R pro profitabilitu
         }
         
         # Auto-blacklist thresholds

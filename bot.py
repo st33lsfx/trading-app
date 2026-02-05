@@ -115,16 +115,16 @@ class TradingBot:
              target_buy = 40
              target_sell = 60
              
-             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell}, min_rr=0.8, filters=OFF")
+             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell}, min_rr=1.5, filters=OFF")
              base_config["rsi_oversold"] = target_buy
              base_config["rsi_overbought"] = target_sell
-             base_config["min_rr_ratio"] = 0.8  # Přepsat learned value
+             base_config["min_rr_ratio"] = 1.5  # FIXED: Minimum R:R 1.5 pro profitabilitu
              
              # CLEAR learned RSI values that override ours
              if learned:
                  learned["rsi_oversold"] = target_buy
                  learned["rsi_overbought"] = target_sell
-                 learned["min_rr_ratio"] = 0.8
+                 learned["min_rr_ratio"] = 1.5
              
              # Enable shorts for scalping
              self.strategy_config["enable_shorts"] = True 
@@ -136,7 +136,7 @@ class TradingBot:
             "rsi_oversold": base_config.get("rsi_oversold", 40),   # BUY pod 40
             "rsi_overbought": base_config.get("rsi_overbought", 60), # SELL nad 60
             "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-            "min_rr_ratio": 0.8,  # HARDCODED - nepřepisovat
+            "min_rr_ratio": 1.5,  # FIXED: Minimum R:R 1.5 pro profitabilitu
             "use_trend_filter": False,      # VYPNUTO
             "use_volatility_filter": False, # VYPNUTO
             "use_volume_filter": False,     # VYPNUTO  
@@ -1496,26 +1496,40 @@ class TradingBot:
 
     def monitor_positions(self):
         """
-        Check open positions and apply Trailing Stop logic.
+        Check open positions and apply Trailing Stop + Partial Profit Taking.
+        
         Logic:
-        - If Profit > 1.0 ATR (0.5 Risk): Move SL to Break Even.
-        - If Profit > 1.5 ATR (0.75 Risk): Lock 0.5 ATR profit.
+        - If Profit > 1.0R (risk distance): Take 50% profit (partial close)
+        - If Profit > 1.5R: Move SL to lock 0.5R
+        - If Profit > 2.0R: Move SL to lock 1.0R
         """
         if self.broker != "capital": 
-            return # Only supported for Capital for now
+            return
 
         try:
             positions = self.client.get_positions()
             if not positions: return
 
+            # Track which positions we've already taken partial on
+            if not hasattr(self, '_partial_taken'):
+                self._partial_taken = set()
+
             for pos in positions:
                 try:
-                    epic = pos.get('epic')
-                    direction = pos.get('direction')
-                    entry_level = pos.get('level')
-                    current_sl = pos.get('stopLevel')
-                    current_tp = pos.get('profitLevel')
-                    deal_id = pos.get('dealId')
+                    # Normalize position data (Capital.com struktura)
+                    market = pos.get('market', {})
+                    pos_data = pos.get('position', {})
+                    
+                    epic = market.get('epic') or pos.get('epic')
+                    direction = pos_data.get('direction') or pos.get('direction')
+                    entry_level = pos_data.get('level') or pos.get('level')
+                    current_sl = pos_data.get('stopLevel') or pos.get('stopLevel')
+                    current_tp = pos_data.get('profitLevel') or pos.get('profitLevel')
+                    deal_id = pos_data.get('dealId') or pos.get('dealId')
+                    current_size = pos_data.get('size') or pos.get('size', 0)
+                    
+                    if not epic or not deal_id or not entry_level:
+                        continue
                     
                     # Fetch live price
                     price_info = self.client.get_prices(epic)
@@ -1530,71 +1544,116 @@ class TradingBot:
                     # Calculate Profit Distance
                     if direction == "BUY":
                         profit_dist = current_price - entry_level
-                        risk_dist = entry_level - current_sl if current_sl else 0
+                        risk_dist = entry_level - current_sl if current_sl else entry_level * 0.01
                     else:
                         profit_dist = entry_level - current_price
-                        risk_dist = current_sl - entry_level if current_sl else 0
-                        
-                    # Estimate ATR from Risk (assuming SL was set to 2*ATR)
-                    # If no SL, fallback to 0.5% price
-                    if risk_dist > 0:
-                        atr_est = risk_dist / 2.0
-                    else:
-                         atr_est = entry_level * 0.005 # Fallback
+                        risk_dist = current_sl - entry_level if current_sl else entry_level * 0.01
                     
-                    # === ELITE RATCHET TRAILING STOP ===
-                    # Level 1: Profit > 1.0 ATR -> Break Even
-                    # Level 2: Profit > 1.5 ATR -> Lock 0.5 ATR
-                    # Level 3: Profit > 2.0 ATR -> Lock 1.0 ATR (Bank it!)
+                    # Risk distance = 1R
+                    one_r = abs(risk_dist) if risk_dist > 0 else entry_level * 0.01
                     
+                    # === PARTIAL PROFIT TAKING at 1R ===
+                    if profit_dist >= one_r and deal_id not in self._partial_taken:
+                        if current_size > 0:
+                            partial_size = round(current_size * 0.5, 2)  # 50% pozice
+                            if partial_size > 0:
+                                self.log(f"💰 PARTIAL PROFIT: {epic} @ 1R - zavírám 50% ({partial_size})")
+                                result = self.client.reduce_position(deal_id, partial_size)
+                                if result:
+                                    self._partial_taken.add(deal_id)
+                                    self.log(f"✅ Partial close successful")
+                                    
+                                    # Telegram notifikace
+                                    if hasattr(self, 'telegram') and self.telegram.enabled:
+                                        pnl_est = partial_size * profit_dist
+                                        self.telegram.notify_close(epic, pnl_est, "Partial @ 1R")
+                    
+                    # === RATCHET TRAILING STOP ===
                     new_sl = None
                     reason = ""
 
-                    # Helper to determine desired SL based on direction
-                    def get_desired_sl(offset_atr):
-                        if direction == "BUY": return entry_level + (atr_est * offset_atr)
-                        else: return entry_level - (atr_est * offset_atr)
+                    def get_desired_sl(r_mult):
+                        """Vypočítej SL level pro zamknutí R násobku."""
+                        if direction == "BUY": 
+                            return entry_level + (one_r * r_mult)
+                        else: 
+                            return entry_level - (one_r * r_mult)
 
-                    # Check Level 3 first (Highest Priority)
-                    if profit_dist > (atr_est * 2.0):
+                    # Level 3: Profit > 2.0R -> Lock 1.0R
+                    if profit_dist > (one_r * 2.0):
                         desired = get_desired_sl(1.0)
-                        # Only move if improvement
-                        if (direction == "BUY" and current_sl < desired) or \
-                           (direction == "SELL" and current_sl > desired):
+                        if (direction == "BUY" and (current_sl is None or current_sl < desired)) or \
+                           (direction == "SELL" and (current_sl is None or current_sl > desired)):
                             new_sl = desired
-                            reason = "Ratchet L3: Lock 1.0 ATR"
+                            reason = "Ratchet L3: Lock 1.0R 🔒"
 
-                    # Check Level 2
-                    elif profit_dist > (atr_est * 1.5):
+                    # Level 2: Profit > 1.5R -> Lock 0.5R
+                    elif profit_dist > (one_r * 1.5):
                         desired = get_desired_sl(0.5)
-                        if (direction == "BUY" and current_sl < desired) or \
-                           (direction == "SELL" and current_sl > desired):
+                        if (direction == "BUY" and (current_sl is None or current_sl < desired)) or \
+                           (direction == "SELL" and (current_sl is None or current_sl > desired)):
                             new_sl = desired
-                            reason = "Ratchet L2: Lock 0.5 ATR"
+                            reason = "Ratchet L2: Lock 0.5R"
 
-                    # Check Level 1 (Break Even)
-                    elif profit_dist > (atr_est * 1.0):
+                    # Level 1: Profit > 1.0R -> Break Even
+                    elif profit_dist > one_r:
                         desired = entry_level
-                        # Check if we are already at LEAST at BE
-                        is_at_least_be = (direction == "BUY" and current_sl >= entry_level) or \
-                                         (direction == "SELL" and current_sl <= entry_level)
+                        is_at_least_be = (direction == "BUY" and current_sl and current_sl >= entry_level) or \
+                                         (direction == "SELL" and current_sl and current_sl <= entry_level)
                         if not is_at_least_be:
                             new_sl = desired
                             reason = "Ratchet L1: Break Even"
                     
-                    # Execute Update
+                    # Execute SL Update
                     if new_sl:
                         self.log(f"🛡️ Trailing: {epic} -> {reason}")
                         success = self.client.update_position(deal_id, stop_level=new_sl)
                         if success:
-                            self.log(f"✅ SL Updated to {new_sl}")
+                            self.log(f"✅ SL Updated to {new_sl:.5f}")
                         else:
                             self.log(f"❌ Failed to update SL")
 
                 except Exception as e:
-                    pass # Silently ignore errors in monitoring to not spam logs
+                    pass  # Silently ignore errors to not spam logs
+                    
         except Exception:
             pass
+            
+    def send_daily_report_if_needed(self):
+        """Pošli denní report v 23:00 UTC."""
+        from datetime import datetime
+        
+        now = datetime.utcnow()
+        
+        # Označ poslední report
+        if not hasattr(self, '_last_daily_report'):
+            self._last_daily_report = None
+        
+        # Report v 23:00 UTC (pouze jednou denně)
+        if now.hour == 23 and self._last_daily_report != now.date():
+            try:
+                # Získej dnešní statistiky
+                summary = self.learning_engine.get_stats_summary()
+                
+                total_trades = summary.get('total_trades', 0)
+                wins = int(total_trades * summary.get('overall_win_rate', 0) / 100)
+                losses = total_trades - wins
+                pnl = summary.get('total_pnl', 0)
+                
+                # Získej balance
+                acc = self.client.get_account_info()
+                accounts = acc.get('accounts', [])
+                balance = accounts[0].get('balance', {}).get('balance', 0) if accounts else 0
+                
+                if hasattr(self, 'telegram') and self.telegram.enabled:
+                    self.telegram.send_daily_report(total_trades, wins, losses, pnl, balance)
+                    self.log("📊 Daily report sent to Telegram")
+                
+                self._last_daily_report = now.date()
+                
+            except Exception as e:
+                self.log(f"Daily report error: {e}")
+
     def start_loop(self):
         """Starts the main loop in a thread."""
         if self.is_running: return
@@ -1613,9 +1672,10 @@ class TradingBot:
                     for _ in range(6): # 6 * 5s = 30s cycle
                         if not self.is_running: break
                         
-                        # Monitor positions (Trailing Stop)
+                        # Monitor positions (Trailing Stop + Partial Profit)
                         if time.time() - last_monitor_time > 5:
                             self.monitor_positions()
+                            self.send_daily_report_if_needed()  # Daily report v 23:00 UTC
                             last_monitor_time = time.time()
                             
                         time.sleep(5)

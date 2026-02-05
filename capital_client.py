@@ -263,6 +263,64 @@ class CapitalClient:
         if response:
             return True
         return False
+    
+    def close_position(self, deal_id):
+        """Úplně zavři pozici."""
+        endpoint = f"{self.base_url}/api/v1/positions/{deal_id}"
+        response = self._safe_request("DELETE", endpoint)
+        if response:
+            return response.json()
+        return None
+    
+    def reduce_position(self, deal_id, reduce_size):
+        """
+        Částečně zavři pozici (partial profit taking).
+        
+        Args:
+            deal_id: ID pozice
+            reduce_size: Kolik jednotek zavřít (kladné číslo)
+        
+        Returns:
+            dict s výsledkem nebo None
+        """
+        # Capital.com API: Pro partial close musíme otevřít opačnou pozici
+        # Alternativně některé API to podporují přes PUT s novým size
+        endpoint = f"{self.base_url}/api/v1/positions/{deal_id}"
+        
+        # Nejdřív získej info o pozici
+        try:
+            positions = self.get_positions()
+            target_pos = None
+            for p in positions:
+                pos_data = p.get('position', {})
+                if pos_data.get('dealId') == deal_id:
+                    target_pos = p
+                    break
+            
+            if not target_pos:
+                print(f"Position {deal_id} not found")
+                return None
+            
+            market = target_pos.get('market', {})
+            pos_data = target_pos.get('position', {})
+            epic = market.get('epic')
+            direction = pos_data.get('direction')
+            current_size = pos_data.get('size', 0)
+            
+            if reduce_size >= current_size:
+                # Zavři celou pozici
+                return self.close_position(deal_id)
+            
+            # Otevři opačnou pozici pro partial close
+            opposite_dir = "SELL" if direction == "BUY" else "BUY"
+            result = self.place_market_order(epic, reduce_size, direction=opposite_dir)
+            
+            print(f"✅ Partial close: {reduce_size} of {epic} ({opposite_dir})")
+            return result
+            
+        except Exception as e:
+            print(f"❌ Reduce position error: {e}")
+            return None
 
     def get_prices(self, epic):
         """Get live price for an epic."""
