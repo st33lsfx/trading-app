@@ -1352,7 +1352,7 @@ with tabs[1]:
                 
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Open Positions", len(data))
-                col2.metric("Unrealized P&L", f"${total_pnl:+.2f}", delta="Profit" if total_pnl > 0 else "Loss")
+                col2.metric("Unrealized P&L", f"{total_pnl:+.2f} Kč", delta="Profit" if total_pnl > 0 else "Loss")
                 col3.metric("Avg R:R", f"{avg_rr:.2f}")
                 col4.metric("Protected", f"{protected}/{len(data)}", delta="Trailing" if protected > 0 else None)
                 
@@ -1403,7 +1403,7 @@ with tabs[3]:
                     
                     # KPI Metrics using st.metric
                     col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Daily P&L", f"${total_pnl:+.2f}", delta="Profit" if total_pnl > 0 else "Loss")
+                    col1.metric("Daily P&L", f"{total_pnl:+.2f} Kč", delta="Profit" if total_pnl > 0 else "Loss")
                     col2.metric("Win Rate", f"{win_rate:.1f}%", delta="Good" if win_rate >= 50 else "Low")
                     col3.metric("Profit Factor", f"{profit_factor:.2f}", delta="Profitable" if profit_factor > 1 else "Losing")
                     col4.metric("Total Trades", total_trades)
@@ -1414,8 +1414,8 @@ with tabs[3]:
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("Winning Trades", wins)
                     col2.metric("Losing Trades", losses)
-                    col3.metric("Avg Win", f"${avg_win:+.2f}")
-                    col4.metric("Avg Loss", f"${avg_loss:.2f}")
+                    col3.metric("Avg Win", f"{avg_win:+.2f} Kč")
+                    col4.metric("Avg Loss", f"{avg_loss:.2f} Kč")
                     
                     # Win rate progress bar
                     if total_trades > 0:
@@ -1544,9 +1544,9 @@ with tabs[3]:
                             
                             st.subheader("Account Overview")
                             col1, col2, col3 = st.columns(3)
-                            col1.metric("Balance", f"${balance.get('balance', 0):.2f}")
-                            col2.metric("Available", f"${balance.get('available', 0):.2f}")
-                            col3.metric("P&L", f"${balance.get('profitLoss', 0):.2f}")
+                            col1.metric("Balance", f"{balance.get('balance', 0):.2f} Kč")
+                            col2.metric("Available", f"{balance.get('available', 0):.2f} Kč")
+                            col3.metric("P&L", f"{balance.get('profitLoss', 0):.2f} Kč")
                     except:
                         pass
             else:

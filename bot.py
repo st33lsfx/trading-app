@@ -30,7 +30,7 @@ CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 2          # Max 2 současné pozice
+    MAX_POSITIONS = 4          # Max 4 současné pozice
     TRADE_AMOUNT_CZK = 175     # ~$7 per trade (zvýšeno z $2 - minimální velikosti aktiv)
     MAX_RISK_PCT = 0.005       # 0.5% kapitálu per trade
 else:
@@ -233,20 +233,20 @@ class TradingBot:
 
         self.daily_pnl = 0.0
         self.daily_reset_date = date.today().isoformat()
-        self.max_daily_loss = 8.0     # USD (~200 Kč) – max 10% denní ztráta
-        self.daily_profit_target = 4.0 # USD (~100 Kč) – realistický denní cíl
+        self.max_daily_loss = 30.0     # CZK – max 1.5% denní ztráta (1.5% z 2000 Kč)
+        self.daily_profit_target = 50.0 # CZK – realistický denní cíl (2.5% z 2000 Kč)
         self.session_stopped_reason = None
         self._daily_pnl_lock = threading.Lock()
 
         # Position sizing
         self.margin_usage_pct = 0.40  # 40% marginu
-        self.max_positions = 5        # Více pozic = více obchodů
+        self.max_positions = MAX_POSITIONS  # OPRAVA: Použij globální konstantu (2 v SAFE MODE)
 
-        # Kelly Criterion - based on backtest (70% WR)
-        self.kelly_win_rate = 0.70    # 70% WR z backtestu
-        self.kelly_avg_win = 1.2      # R:R 1.2
+        # Kelly Criterion - based on realistic backtest (45% WR)
+        self.kelly_win_rate = 0.45    # 45% WR z backtestu (realistické)
+        self.kelly_avg_win = 1.5      # R:R 1.5
         self.kelly_avg_loss = 1.0
-        self.kelly_fraction = 0.4     # 40% Kelly
+        self.kelly_fraction = 0.25    # 25% Kelly (konzervativní)
 
         # Correlation filter - povolit více pozic
         self.max_forex_positions = 2
@@ -267,7 +267,7 @@ class TradingBot:
 
         # Compounding - zvyšuj trade_amount s profitem
         self.compound_profits = True
-        self.base_capital = 80.0      # $80 = 2000 Kč
+        self.base_capital = 2000.0      # 2000 Kč (LIVE účet v CZK)
 
     def log(self, message):
         timestamp = time.strftime('%H:%M:%S')
