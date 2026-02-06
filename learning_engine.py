@@ -60,7 +60,12 @@ class LearningEngine:
 
         # Activity log
         self.activity_log = []
-        
+
+        # NEW v2.1: Indicator combo performance tracking
+        self.indicator_combos = defaultdict(lambda: {
+            "trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0
+        })
+
         # Trade counter for optimization trigger
         self._trades_since_optimization = 0
         
@@ -69,9 +74,9 @@ class LearningEngine:
             "rsi_oversold": 38,
             "rsi_overbought": 62,
             "atr_sl_mult": 2.0,
-            "min_confidence": 0.6,
+            "min_confidence": 0.55,
             "enable_shorts": True,
-            "min_rr_ratio": 1.5,  # FIXED: Minimum R:R pro profitabilitu
+            "min_rr_ratio": 2.0,  # 2026 guide: R:R 2.0 minimum
         }
         
         # Auto-blacklist thresholds
@@ -156,10 +161,14 @@ class LearningEngine:
         # Convert to defaultdict
         for ticker, stats in data.get("ticker_stats", {}).items():
             self.ticker_stats[ticker].update(stats)
-        
+
         self.learned_params.update(data.get("learned_params", {}))
         self.direction_stats.update(data.get("direction_stats", {}))
         self.activity_log = data.get("activity_log", [])[-300:]
+
+        # Load indicator combo stats (v2.1)
+        for combo, stats in data.get("indicator_combos", {}).items():
+            self.indicator_combos[combo].update(stats)
     
     def _save_data(self):
         """Save learning data to Supabase and local file."""
@@ -168,6 +177,7 @@ class LearningEngine:
             "ticker_stats": dict(self.ticker_stats),
             "learned_params": self.learned_params,
             "direction_stats": self.direction_stats,
+            "indicator_combos": dict(self.indicator_combos),
             "activity_log": self.activity_log[-300:],
             "last_updated": datetime.utcnow().isoformat()
         }
@@ -190,10 +200,10 @@ class LearningEngine:
             except Exception as e:
                 print(f"⚠️ Supabase save error: {e}")
     
-    def record_trade(self, ticker: str, pnl: float, direction: str, 
+    def record_trade(self, ticker: str, pnl: float, direction: str,
                      entry_price: float, exit_price: float, exit_reason: str,
                      target_rr: float = None, achieved_rr: float = None,
-                     volatility_atr: float = None):
+                     volatility_atr: float = None, indicators_used: list = None):
         """
         Record a completed trade for learning.
         
@@ -277,9 +287,20 @@ class LearningEngine:
         if len(stats["trade_history"]) > 100:
             stats["trade_history"] = stats["trade_history"][-100:]
         
+        # Track indicator combo performance (v2.1)
+        if indicators_used:
+            combo_key = "+".join(sorted(indicators_used))
+            combo = self.indicator_combos[combo_key]
+            combo["trades"] += 1
+            combo["total_pnl"] += pnl
+            if pnl > 0:
+                combo["wins"] += 1
+            else:
+                combo["losses"] += 1
+
         # Check for auto-blacklist
         self._evaluate_ticker(ticker)
-        
+
         # Check for smart unblacklist
         self._reevaluate_blacklist()
 
@@ -452,6 +473,23 @@ class LearningEngine:
             "total_pnl": stats.get("total_pnl", 0.0),
         }
     
+    def get_best_indicator_combos(self, min_trades: int = 5) -> list:
+        """Get best performing indicator combinations (v2.1)."""
+        results = []
+        for combo, stats in self.indicator_combos.items():
+            trades = stats.get("trades", 0)
+            if trades >= min_trades:
+                wins = stats.get("wins", 0)
+                wr = (wins / trades) * 100
+                pf = stats.get("total_pnl", 0)
+                results.append({
+                    "combo": combo,
+                    "trades": trades,
+                    "win_rate": round(wr, 1),
+                    "total_pnl": round(pf, 2),
+                })
+        return sorted(results, key=lambda x: x["win_rate"], reverse=True)
+
     def get_best_tickers(self, n: int = 5) -> list:
         """Get top N performing tickers."""
         valid_tickers = [
@@ -501,6 +539,7 @@ class LearningEngine:
             "short_stats": short_stats,
             "learned_params": self.learned_params,
             "avg_rr_achieved": round(avg_rr, 2),
+            "best_indicator_combos": self.get_best_indicator_combos(3),
             "version": self.VERSION,
         }
     

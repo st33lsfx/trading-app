@@ -18977,33 +18977,22 @@
       ]
     },
     "NVDA": {
-      "trades": 114,
-      "wins": 46,
+      "trades": 115,
+      "wins": 47,
       "losses": 68,
-      "total_pnl": -13.275564656602164,
-      "win_rate": 40.35087719298245,
-      "profit_factor": 0.9890296068705057,
-      "last_trade": "2026-02-05T22:37:37.358164",
-      "consecutive_losses": 3,
+      "total_pnl": 16.724435343397836,
+      "win_rate": 40.869565217391305,
+      "profit_factor": 1.0073282702802198,
+      "last_trade": "2026-02-05T23:52:10.826520",
+      "consecutive_losses": 0,
       "auto_blacklisted": true,
       "blacklist_reason": "4 consecutive losses",
       "blacklist_date": "2026-02-05T22:37:36.743715",
-      "gross_profit": 1621.4784403523154,
+      "gross_profit": 1651.4784403523154,
       "gross_loss": 1639.4640050089185,
       "avg_rr": 0.0,
       "rr_history": [],
       "trade_history": [
-        {
-          "timestamp": "2026-02-05T22:37:33.553136",
-          "direction": "SELL",
-          "entry_price": 121.72879791259766,
-          "exit_price": 117.16506743310697,
-          "pnl": 37.49096810080623,
-          "exit_reason": "TP",
-          "target_rr": null,
-          "achieved_rr": null,
-          "volatility_atr": null
-        },
         {
           "timestamp": "2026-02-05T22:37:33.586032",
           "direction": "BUY",
@@ -20089,6 +20078,17 @@
           "exit_price": 182.1887936669363,
           "pnl": -21.411088059514178,
           "exit_reason": "SL",
+          "target_rr": null,
+          "achieved_rr": null,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T23:52:10.826531",
+          "direction": "BUY",
+          "entry_price": 120,
+          "exit_price": 123,
+          "pnl": 30.0,
+          "exit_reason": "TP_HIT",
           "target_rr": null,
           "achieved_rr": null,
           "volatility_atr": null
@@ -21215,44 +21215,22 @@
       ]
     },
     "BTC-USD": {
-      "trades": 421,
-      "wins": 159,
-      "losses": 262,
-      "total_pnl": 185.8178775019475,
-      "win_rate": 37.76722090261283,
-      "profit_factor": 1.0652088385891536,
-      "last_trade": "2026-02-05T22:35:03.828252",
-      "consecutive_losses": 0,
+      "trades": 423,
+      "wins": 160,
+      "losses": 263,
+      "total_pnl": 215.8178775019475,
+      "win_rate": 37.825059101654844,
+      "profit_factor": 1.0756724062793592,
+      "last_trade": "2026-02-05T23:52:10.790278",
+      "consecutive_losses": 1,
       "auto_blacklisted": false,
       "blacklist_reason": null,
       "blacklist_date": "2026-02-05T22:35:03.618486",
-      "gross_profit": 2899.9790258877474,
-      "gross_loss": 2722.451148385802,
+      "gross_profit": 2949.9790258877474,
+      "gross_loss": 2742.451148385802,
       "avg_rr": 0.0,
       "rr_history": [],
       "trade_history": [
-        {
-          "timestamp": "2026-02-05T22:35:01.602284",
-          "direction": "BUY",
-          "entry_price": 102043.2421875,
-          "exit_price": 100627.87020014548,
-          "pnl": -13.870315730990157,
-          "exit_reason": "SL",
-          "target_rr": null,
-          "achieved_rr": null,
-          "volatility_atr": null
-        },
-        {
-          "timestamp": "2026-02-05T22:35:01.622688",
-          "direction": "SELL",
-          "entry_price": 101682.4296875,
-          "exit_price": 103346.16852335747,
-          "pnl": -16.36210740607425,
-          "exit_reason": "SL",
-          "target_rr": null,
-          "achieved_rr": null,
-          "volatility_atr": null
-        },
         {
           "timestamp": "2026-02-05T22:35:01.647986",
           "direction": "BUY",
@@ -22327,6 +22305,28 @@
           "exit_price": 63079.87714256881,
           "pnl": 62.682632011481566,
           "exit_reason": "TP",
+          "target_rr": null,
+          "achieved_rr": null,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T23:52:10.753368",
+          "direction": "BUY",
+          "entry_price": 95000,
+          "exit_price": 95500,
+          "pnl": 50.0,
+          "exit_reason": "TP_HIT",
+          "target_rr": null,
+          "achieved_rr": null,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T23:52:10.790294",
+          "direction": "BUY",
+          "entry_price": 95000,
+          "exit_price": 94800,
+          "pnl": -20.0,
+          "exit_reason": "SL_HIT",
           "target_rr": null,
           "achieved_rr": null,
           "volatility_atr": null
@@ -48081,6 +48081,47 @@
           "volatility_atr": null
         }
       ]
+    },
+    "TEST": {
+      "trades": 2,
+      "wins": 1,
+      "losses": 1,
+      "total_pnl": 3.0,
+      "win_rate": 50.0,
+      "profit_factor": 2.5,
+      "last_trade": "2026-02-05T23:49:20.279514",
+      "consecutive_losses": 1,
+      "auto_blacklisted": false,
+      "blacklist_reason": null,
+      "blacklist_date": null,
+      "gross_profit": 5.0,
+      "gross_loss": 2.0,
+      "avg_rr": 0.0,
+      "rr_history": [],
+      "trade_history": [
+        {
+          "timestamp": "2026-02-05T23:49:20.179075",
+          "direction": "BUY",
+          "entry_price": 100,
+          "exit_price": 105,
+          "pnl": 5.0,
+          "exit_reason": "TP",
+          "target_rr": null,
+          "achieved_rr": null,
+          "volatility_atr": null
+        },
+        {
+          "timestamp": "2026-02-05T23:49:20.279536",
+          "direction": "BUY",
+          "entry_price": 100,
+          "exit_price": 98,
+          "pnl": -2.0,
+          "exit_reason": "SL",
+          "target_rr": null,
+          "achieved_rr": null,
+          "volatility_atr": null
+        }
+      ]
     }
   },
   "learned_params": {
@@ -48093,12 +48134,12 @@
   },
   "direction_stats": {
     "BUY": {
-      "trades": 5524,
-      "wins": 2109,
-      "losses": 3415,
+      "trades": 5529,
+      "wins": 2112,
+      "losses": 3417,
       "win_rate": 41.93,
       "profit_factor": 1.5,
-      "total_pnl": 404.95641860850765
+      "total_pnl": 467.95641860850765
     },
     "SELL": {
       "trades": 5612,
@@ -48109,32 +48150,33 @@
       "total_pnl": 528.649726349611
     }
   },
+  "indicator_combos": {
+    "HMA+MACD+Supertrend": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 5.0
+    },
+    "HMA+Supertrend": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "total_pnl": -2.0
+    },
+    "adx+hma+macd+supertrend": {
+      "trades": 2,
+      "wins": 2,
+      "losses": 0,
+      "total_pnl": 80.0
+    },
+    "adx+hma+supertrend": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "total_pnl": -20.0
+    }
+  },
   "activity_log": [
-    {
-      "time": "2026-02-05 22:37",
-      "type": "trade",
-      "message": "AMD BUY PnL $+3.24"
-    },
-    {
-      "time": "2026-02-05 22:37",
-      "type": "trade",
-      "message": "NFLX SELL PnL $-14.57"
-    },
-    {
-      "time": "2026-02-05 22:37",
-      "type": "trade",
-      "message": "NFLX SELL PnL $+32.35"
-    },
-    {
-      "time": "2026-02-05 22:37",
-      "type": "trade",
-      "message": "NFLX SELL PnL $-23.18"
-    },
-    {
-      "time": "2026-02-05 22:37",
-      "type": "trade",
-      "message": "NFLX SELL PnL $+6.87"
-    },
     {
       "time": "2026-02-05 22:37",
       "type": "trade",
@@ -49609,7 +49651,32 @@
       "time": "2026-02-05 22:37",
       "type": "trade",
       "message": "INTC SELL PnL $+61.92"
+    },
+    {
+      "time": "2026-02-05 23:49",
+      "type": "trade",
+      "message": "TEST BUY PnL $+5.00"
+    },
+    {
+      "time": "2026-02-05 23:49",
+      "type": "trade",
+      "message": "TEST BUY PnL $-2.00"
+    },
+    {
+      "time": "2026-02-05 23:52",
+      "type": "trade",
+      "message": "BTC-USD BUY PnL $+50.00"
+    },
+    {
+      "time": "2026-02-05 23:52",
+      "type": "trade",
+      "message": "BTC-USD BUY PnL $-20.00"
+    },
+    {
+      "time": "2026-02-05 23:52",
+      "type": "trade",
+      "message": "NVDA BUY PnL $+30.00"
     }
   ],
-  "last_updated": "2026-02-05T22:37:55.577739"
+  "last_updated": "2026-02-05T23:52:10.826577"
 }

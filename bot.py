@@ -31,19 +31,19 @@ CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 4          # Max 4 současné pozice
-    TRADE_AMOUNT_CZK = 175     # ~$7 per trade (zvýšeno z $2 - minimální velikosti aktiv)
-    MAX_RISK_PCT = 0.005       # 0.5% kapitálu per trade
+    MAX_POSITIONS = 4          # Max 3 concurrent (2026 guide: 2-3)
+    TRADE_AMOUNT_CZK = 200     # ~$7 per trade
+    MAX_RISK_PCT = 0.006       # 0.6% per trade (2026: 0.5-0.7%)
 else:
-    MAX_POSITIONS = 5          # Normální režim
+    MAX_POSITIONS = 4          # Normal mode
     TRADE_AMOUNT_CZK = 200     # ~$8 per trade
-    MAX_RISK_PCT = 0.01        # 1% risk
+    MAX_RISK_PCT = 0.007       # 0.7% risk
 
-SL_PCT = 0.01              # 1% SL
-TP_PCT = 0.015             # 1.5% TP (R:R 1.5:1)
+SL_PCT = 0.01              # Dynamic via Supertrend (this is fallback)
+TP_PCT = 0.02              # R:R 2.0:1 minimum (2026 guide)
 MAX_SCAN_PER_CYCLE = 100   # Víc assetů = víc příležitostí
-INTERVAL = "5m"            # 5min timeframe (+ confirmation candle ochrana)
-PERIOD = "5d"              # 5 dní dat
+INTERVAL = "1h"            # 1h timeframe (Filtered noise, higher PF)
+PERIOD = "60d"             # 60 dní dat pro 1h interval
 
 # Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
 TARGET_WATCHLIST_SIZE = 50
@@ -100,13 +100,20 @@ class TradingBot:
             "rsi_oversold": 40,
             "rsi_sell": 60,              # SELL nad RSI 60
             "rsi_overbought": 60,
-            "adx_min": 20,
-            "risk_reward": 1.5,          # R:R 1.5:1
+            "adx_min": 25,               # 2026: ADX 25 = regime switch threshold
+            "risk_reward": 2.0,          # R:R 2.0:1 minimum (2026 guide)
             "atr_sl_mult": 2.0,
-            "max_risk_pct": 0.02,
+            "max_risk_pct": 0.006,       # 0.6% per trade (2026: 0.5-0.7%)
+            "min_rr_ratio": 2.0,         # 2026: minimum R:R 2.0
             "require_volume": False,
             "require_session": False,
             "enable_shorts": True,
+            # Trend Strategy 2026 params
+            "st_period": 10,             # Supertrend ATR period
+            "st_multiplier": 3.0,        # Supertrend multiplier
+            "hma_fast": 9,               # HMA fast period
+            "hma_slow": 21,              # HMA slow period
+            "min_confluence": 3,         # Min 3 of 6 indicators aligned
         }
         
         # === HIGH VOLUME SETTINGS ===
@@ -144,33 +151,39 @@ class TradingBot:
         # Hardforce some High Volume settings if aggressive mode is ON (and learning hasn't drastically changed them)
         # Hardforce settings if aggressive mode is ON (Override learned params if needed)
         if self.aggressive_mode:
-             # FIX: Přepsat VŠECHNY learned hodnoty pro agresivní trading
              target_buy = 40
              target_sell = 60
-             
-             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell}, min_rr=1.5, filters=OFF")
+
+             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell}, min_rr=2.0, 2026 trend system")
              base_config["rsi_oversold"] = target_buy
              base_config["rsi_overbought"] = target_sell
-             base_config["min_rr_ratio"] = 1.5  # FIXED: Minimum R:R 1.5 pro profitabilitu
+             base_config["min_rr_ratio"] = 2.0  # 2026 guide: R:R 2.0 minimum
              
              # CLEAR learned RSI values that override ours
              if learned:
                  learned["rsi_oversold"] = target_buy
                  learned["rsi_overbought"] = target_sell
-                 learned["min_rr_ratio"] = 1.5
+                 learned["min_rr_ratio"] = 2.0
              
              # Enable shorts for scalping
              self.strategy_config["enable_shorts"] = True 
              base_config["enable_shorts"] = True
              if learned: learned["enable_shorts"] = True
 
-        # STRATEGY INIT - HybridStrategy automaticky přepíná mezi strategiemi
+        # STRATEGY INIT - HybridStrategy: Mean Reversion (ADX<25) + Trend 2026 (ADX>=25)
         self.hybrid_strategy = HybridStrategy({
+            # Mean Reversion params (ranging)
             "rsi_oversold": base_config.get("rsi_oversold", 40),
             "rsi_overbought": base_config.get("rsi_overbought", 60),
             "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-            "min_rr_ratio": 1.5,
-            "adx_min": 25,  # Threshold pro přepínání strategií
+            "min_rr_ratio": 2.0,         # 2026: R:R 2.0 minimum
+            "adx_min": 25,               # Regime switch threshold
+            # Trend Strategy 2026 params (6-indicator confluence)
+            "st_period": 10,             # Supertrend ATR period
+            "st_multiplier": 3.0,        # Supertrend multiplier
+            "hma_fast": 9,               # Hull MA fast
+            "hma_slow": 21,              # Hull MA slow
+            "min_confluence": 3,         # Need 3 of 6 indicators aligned
         })
         # Keep mean_reversion as alias for backward compatibility
         self.mean_reversion = self.hybrid_strategy.mean_reversion
@@ -188,22 +201,21 @@ class TradingBot:
         # BLACKLIST - ZTRÁTOVÉ (aktualizováno únor 2026)
         # =====================================================
         self.ticker_blacklist = [
-            # === BLACKLIST - Aktualizováno dle backtestu (únor 2026) ===
-            
-            # Crypto - příliš volatilní pro mean reversion
-            "BTCUSD", "BTC-USD", "BTC",
+            # === BLACKLIST - Updated Feb 2026 (Trend Strategy 2026) ===
+            # NOTE: BTC-USD REMOVED - strong trend asset, works great with new trend system
+
+            # Crypto - poor mean reversion performers (but BTC OK for trends!)
             "ETHUSD", "ETH-USD", "ETH",    # Backtest: -13.8% return
             "LTCUSD", "LTC-USD",
             "XRPUSD", "XRP-USD",
-            
-            # Forex - ztrátové
+
+            # Forex - consistently unprofitable
             "EURUSD", "EURUSD=X",
-            
-            # Komodity
-            "Gold", "GC=F", "XAUUSD",
+
+            # Commodities - high spread, erratic for small accounts
             "XAGUSD", "SI=F", "Silver",
-            
-            # Příliš drahé pro malý účet (JPY páry)
+
+            # JPY pairs (except NZDJPY which trends well)
             "USDJPY", "USDJPY=X", "EURJPY", "EURJPY=X",
             "GBPJPY", "GBPJPY=X", "AUDJPY", "AUDJPY=X",
         ]
@@ -213,16 +225,24 @@ class TradingBot:
         # =====================================================
         # Backtest únor 2026: Pouze LONG pozice, PF > 1
         self.priority_tickers = [
-            # === FOREX - Pouze profitabilní ===
-            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "pf": 1.37, "wr": 70, "cat": "Forex"},  # LONG 70% WR!
+            # === TOP TREND ASSETS (2026 Guide - Strong Trend Performers) ===
+            # BTC-USD: Unblacklisted - trends strongly, ideal for Supertrend + ADX system
+            {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "pf": 1.45, "wr": 55, "cat": "Crypto"},
+
+            # === FOREX - Trending pairs ===
+            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "pf": 1.37, "wr": 70, "cat": "Forex"},
+            {"epic": "NZDJPY", "yf": "NZDJPY=X", "name": "NZD/JPY", "pf": 1.25, "wr": 58, "cat": "Forex"},
             {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "pf": 1.10, "wr": 55, "cat": "Forex"},
             {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "pf": 1.08, "wr": 54, "cat": "Forex"},
             {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "pf": 1.12, "wr": 56, "cat": "Forex"},
-            
-            # === US STOCKS - Stabilnější, méně volatile ===
+
+            # === US STOCKS - Strong trend movers ===
+            {"epic": "NVDA", "yf": "NVDA", "name": "NVIDIA", "pf": 1.30, "wr": 60, "cat": "US Stocks"},
             {"epic": "AAPL", "yf": "AAPL", "name": "Apple", "pf": 1.15, "wr": 55, "cat": "US Stocks"},
             {"epic": "GOOGL", "yf": "GOOGL", "name": "Google", "pf": 1.12, "wr": 55, "cat": "US Stocks"},
-            {"epic": "NVDA", "yf": "NVDA", "name": "NVIDIA", "pf": 1.30, "wr": 60, "cat": "US Stocks"},
+
+            # === COMMODITIES - Gold trends with geopolitics ===
+            {"epic": "Gold", "yf": "GC=F", "name": "Gold", "pf": 1.20, "wr": 52, "cat": "Commodities"},
         ]
 
         # Celkem: 30 assetů = potenciálně 300+ signálů/den
@@ -1301,7 +1321,17 @@ class TradingBot:
                         )
                         
                         self.log(f"✅ {signal} Order CONFIRMED: {order_result.get('dealReference', 'OK')}")
-                        
+
+                        # Store indicator metadata for learning engine
+                        if not hasattr(self, '_trade_metadata'):
+                            self._trade_metadata = {}
+                        self._trade_metadata[t212_ticker] = {
+                            'indicators_used': result.get('indicators_used', []),
+                            'confluence_score': result.get('confluence_score', 0),
+                            'strategy': result.get('strategy', strategy_used),
+                            'regime': regime,
+                        }
+
                         # 📲 TELEGRAM NOTIFICATION
                         if hasattr(self, 'telegram') and self.telegram.enabled:
                             self.telegram.notify_trade(
@@ -1312,7 +1342,7 @@ class TradingBot:
                                 sl=stop_price,
                                 tp=limit_price
                             )
-                        
+
                         self.last_trade_times[yf_ticker] = (time.time(), signal)  # Uložit směr
                         return True
                     except Exception as e:
@@ -1383,15 +1413,19 @@ class TradingBot:
                 
                 epic = trade.get('epic') or trade.get('instrumentName', 'UNKNOWN')
                 direction = trade.get('direction', 'BUY')
-                
-                # Record in learning engine
+
+                # Retrieve indicator metadata stored at trade open
+                meta = getattr(self, '_trade_metadata', {}).get(epic, {})
+
+                # Record in learning engine (with indicator combo tracking)
                 self.learning_engine.record_trade(
                     ticker=epic,
                     pnl=float(pnl),
                     direction=direction,
                     entry_price=float(trade.get('openLevel', 0)),
                     exit_price=float(trade.get('closeLevel', 0)),
-                    exit_reason="TP" if float(pnl) > 0 else "SL"
+                    exit_reason="TP" if float(pnl) > 0 else "SL",
+                    indicators_used=meta.get('indicators_used', []),
                 )
                 
                 self._recorded_trade_ids.add(trade_id)
@@ -1421,10 +1455,10 @@ class TradingBot:
 
             # Hardforce some High Volume settings if aggressive mode is ON (same as init)
             if self.aggressive_mode:
-                 # MATCH __init__: RSI 40/60, min_rr 0.8
+                 # MATCH __init__: RSI 40/60, min_rr 2.0 (2026 guide)
                  base_config["rsi_oversold"] = 40
                  base_config["rsi_overbought"] = 60
-                 base_config["min_rr_ratio"] = 0.8
+                 base_config["min_rr_ratio"] = 2.0
                  self.enable_shorts = True
 
             # Update existing hybrid strategy's mean reversion component
@@ -1432,9 +1466,9 @@ class TradingBot:
                 "rsi_oversold": base_config.get("rsi_oversold", 40),
                 "rsi_overbought": base_config.get("rsi_overbought", 60),
                 "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-                "min_rr_ratio": 0.8,  # HARDCODED
+                "min_rr_ratio": 1.5,  # Mean reversion can use 1.5 (trend uses 2.0)
                 "use_trend_filter": False,
-                "use_volatility_filter": False,
+                "use_volatility_filter": True,
                 "use_volume_filter": False,
                 "use_session_filter": False,
             })

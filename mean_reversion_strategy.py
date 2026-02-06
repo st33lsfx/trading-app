@@ -1,17 +1,12 @@
 """
-Mean Reversion Strategy v2.0
-============================
-Vylepšení:
-- Trend filter (EMA 50) - neobchoduj proti trendu
-- Volatility filter - vyhni se příliš klidným/divokým trhům
-- Volume confirmation - vyšší confidence při vysokém volume
-- Session filter - obchoduj jen v aktivních hodinách
-- Minimum profit check - neotvírej trade s malým potenciálem
-- Lepší SL/TP management
+Mean Reversion Strategy v2.1 (2026 Ranging Fallback)
+=====================================================
+Active ONLY when ADX < 25 (ranging/choppy markets).
+When ADX >= 25, HybridStrategy switches to TrendStrategy 2026.
 
-Backtest výsledky (původní):
-- Win Rate: 56.1%
-- Return bez páky: 33.5%
+Core: Bollinger Bands + RSI + Confirmation Candle
+Filters: ADX < 25 (strict), Volatility, Volume, Session
+Risk: ATR-based SL, R:R >= 1.5 minimum
 """
 
 import pandas as pd
@@ -158,18 +153,18 @@ class MeanReversionStrategy:
                      reasons.append(f"❌ Local Trend UP (RISKY)")
 
 
-        # 1.5 ADX FILTER (CRITICAL for mean reversion!)
-        # ADX < 25 = ranging market (GOOD for mean reversion)
-        # ADX > 25 = trending market (BAD - skip trade)
+        # 1.5 ADX FILTER (STRICT - mean reversion ONLY in ranging markets)
+        # ADX < 20 = strong ranging (ideal)
+        # ADX 20-25 = weak ranging (allow with caution)
+        # ADX >= 25 = trending (BLOCK - TrendStrategy handles this)
         adx = row.get('adx', 0)
-        if adx > 30:
+        if adx >= 25:
             passed = False
-            reasons.append(f"❌ Strong trend (ADX {adx:.1f}) - mean reversion risky")
-        elif adx > 25:
-            # Warning but still allow with lower confidence
-            reasons.append(f"⚠️ Trend forming (ADX {adx:.1f})")
+            reasons.append(f"❌ Trending market (ADX {adx:.1f} >= 25) - use TrendStrategy")
+        elif adx > 20:
+            reasons.append(f"⚠️ Weak ranging (ADX {adx:.1f}) - proceed with caution")
         else:
-            reasons.append(f"✅ Ranging market (ADX {adx:.1f})")
+            reasons.append(f"✅ Strong ranging (ADX {adx:.1f} < 20) - ideal for MR")
 
         # 2. VOLATILITY FILTER
         if self.use_volatility_filter:
