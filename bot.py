@@ -32,7 +32,7 @@ CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 3          # Strict limit for 15m scalping
+    MAX_POSITIONS = 4          # Strict limit for 15m scalping
     TRADE_AMOUNT_CZK = 200     # ~$7 per trade
     MAX_RISK_PCT = 0.005       # 0.5% per trade (tighter for 15m)
 else:
