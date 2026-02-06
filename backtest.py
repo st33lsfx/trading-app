@@ -8,63 +8,39 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from strategy import Strategy
+from elite_strategy import EliteStrategy  # Updated import
 from itertools import product
 
 
 class Backtester:
     """
-    Backtesting engine for scalping strategy.
-
-    Usage:
-        bt = Backtester()
-        result = bt.run("EURUSD=X", period="3mo", interval="5m")
-        print(result['win_rate'], result['profit_factor'])
+    Backtesting engine for Elite Volume Profile Strategy.
     """
 
     def __init__(self, strategy_config=None, initial_capital=1000.0, spread_pct=0.0001):
         """
         Initialize backtester.
-
-        Args:
-            strategy_config: Strategy parameters (RSI, ADX thresholds, etc.)
-            initial_capital: Starting capital for simulation
-            spread_pct: Simulated spread/slippage (0.01% default)
         """
-        # OPTIMÁLNÍ KONFIGURACE - na základě testů únor 2026
-        # Nejlepší výsledky: AUDUSD (PF 3.36), ETH-USD (PF 1.95), EURUSD (PF 2.02)
+        # ELITE CONFIG
         self.config = strategy_config or {
-            "rsi_buy": 60,           # Mírně vyšší = více kvalitních signálů
-            "rsi_oversold": 35,      # Bounce vstupy
-            "rsi_sell": 40,          # Pro shorty
-            "rsi_overbought": 65,    # Short vstupy
-            "adx_min": 18,           # Snížený = více příležitostí
-            "risk_reward": 2.0,      # Vyšší R:R = lepší expectancy
-            "atr_sl_mult": 1.2,      # SL na 1.2x ATR
-            "max_risk_pct": 0.008,   # Max 0.8% risk per trade
-            "require_volume": False,
-            "require_session": False,
-            "enable_shorts": True,
-            # Trailing stop vypnutý - klasický SL/TP funguje lépe
-            "trailing_stop": False,
-            "trailing_atr_mult": 1.0,
-            "max_bars_in_trade": 300,
-            "breakeven_at_rr": 0,
+            "rsi_buy": 60,
+            "rsi_oversold": 40,
+            "rsi_sell": 40,
+            "rsi_overbought": 60,
+            "adx_min": 25,
+            "risk_reward": 2.0,
+            "atr_sl_mult": 2.0,
+            "max_risk_pct": 0.008,
+            "min_confluence": 4,      # Standard Elite settings
+            "trailing_stop": False,   # Elite uses fixed SL/TP or PSAR (handled in loop if needed)
         }
         self.initial_capital = initial_capital
         self.spread_pct = spread_pct
 
-    def fetch_data(self, ticker, period="3mo", interval="5m"):
+    def fetch_data(self, ticker, period="60d", interval="15m"):
         """
         Fetch historical data from Yahoo Finance.
-
-        Args:
-            ticker: Yahoo Finance ticker (e.g., "EURUSD=X", "BTC-USD")
-            period: Data period (1mo, 3mo, 6mo, 1y)
-            interval: Candle interval (1m, 5m, 15m, 1h, 1d)
-
-        Returns:
-            DataFrame with OHLCV data
+        Elite Strategy defaults: 60d, 15m.
         """
         try:
             ticker_obj = yf.Ticker(ticker)
@@ -76,35 +52,34 @@ class Backtester:
             print(f"Error fetching {ticker}: {e}")
             return pd.DataFrame()
 
-    def run(self, ticker, period="3mo", interval="5m", config=None):
+    def run(self, ticker, period="60d", interval="15m", config=None):
         """
         Run backtest on a single ticker.
-
-        Args:
-            ticker: Yahoo Finance ticker
-            period: Historical period to test
-            interval: Candle interval
-            config: Override strategy config for this run
-
-        Returns:
-            dict with backtest results and metrics
         """
         if config:
-            self.config = config
+            self.config.update(config)
 
         # Fetch data
         df = self.fetch_data(ticker, period, interval)
         if df.empty:
             return {"error": f"No data for {ticker}"}
 
-        # Initialize strategy for indicator calculation
-        strategy = Strategy(ticker)
-        df = strategy.calculate_indicators(df)
+        # Initialize strategy
+        strategy = EliteStrategy(self.config)
+        
+        # Calculate indicators
+        # EliteStrategy uses 'add_indicators' which returns DF
+        try:
+            df = strategy.add_indicators(df)
+            # Calculate VP (needed for get_signal, but usually calculated inside get_signal on sliced DF)
+            # pre-calculation of non-looking-forward indicators is fine.
+        except Exception as e:
+             return {"error": f"Indicator Calc Error: {e}"}
 
-        # Remove NaN rows (from indicator warmup)
-        df = df.dropna(subset=['EMA_200', 'RSI', 'MACD', 'ADX', 'ATR'])
+        # Remove NaN rows
+        df = df.dropna()
 
-        if len(df) < 50:
+        if len(df) < 60:
             return {"error": "Not enough data after indicator warmup"}
 
         # Simulate trades
@@ -127,234 +102,115 @@ class Backtester:
 
     def _simulate_trades(self, df, strategy):
         """
-        Walk through data and simulate trades (LONG and SHORT).
-
-        Logic:
-        1. Check for BUY/SELL signal at each candle
-        2. If in position, check if SL or TP is hit
-        3. Apply trailing stop, breakeven, and time-based exits
-        4. Record completed trades
+        Walk through data and simulate trades using EliteStrategy logic.
         """
         trades = []
-        position = None  # {"entry_idx", "entry_price", "sl", "tp", "entry_time", "direction", "initial_sl", "trailing_sl"}
-
-        # Config parameters
-        trailing_enabled = self.config.get('trailing_stop', True)
-        trailing_atr_mult = self.config.get('trailing_atr_mult', 1.0)
-        max_bars = self.config.get('max_bars_in_trade', 50)
-        breakeven_rr = self.config.get('breakeven_at_rr', 0.5)
-        risk_reward = self.config.get('risk_reward', 1.8)
-
-        # Need at least 200 candles for EMA200
-        min_lookback = 200
+        position = None 
+        trailing_enabled = self.config.get('trailing_stop', False)
+        
+        # EliteStrategy needs ~60 bars warmup for some indicators
+        min_lookback = 60
 
         for i in range(min_lookback, len(df)):
             current_candle = df.iloc[i]
             current_time = df.index[i]
-            atr = current_candle.get('ATR', 0)
-
-            # If we have an open position, check for exit
-            if position is not None:
+            
+            # If position open, check exits
+            if position:
                 high = current_candle['High']
                 low = current_candle['Low']
                 close = current_candle['Close']
                 direction = position['direction']
                 bars_held = i - position['entry_idx']
                 
-                # Calculate current profit in R multiples
-                entry = position['entry_price']
-                initial_risk = abs(entry - position['initial_sl'])
-                
-                if direction == "BUY":
-                    current_profit = close - entry
-                    current_rr = current_profit / initial_risk if initial_risk > 0 else 0
-                else:
-                    current_profit = entry - close
-                    current_rr = current_profit / initial_risk if initial_risk > 0 else 0
-
-                # === TIME-BASED EXIT ===
-                if bars_held >= max_bars:
+                # Check SL
+                sl_hit = False
+                if direction == "BUY" and low <= position['sl']:
+                    exit_price = position['sl']
+                    exit_reason = "SL"
+                    sl_hit = True
+                elif direction == "SELL" and high >= position['sl']:
+                    exit_price = position['sl']
+                    exit_reason = "SL"
+                    sl_hit = True
+                    
+                # Check TP
+                tp_hit = False
+                if not sl_hit:
+                    if direction == "BUY" and high >= position['tp']:
+                        exit_price = position['tp']
+                        exit_reason = "TP"
+                        tp_hit = True
+                    elif direction == "SELL" and low <= position['tp']:
+                        exit_price = position['tp']
+                        exit_reason = "TP"
+                        tp_hit = True
+                        
+                # Time Exit (Safety)
+                time_exit = False
+                if not sl_hit and not tp_hit and bars_held > 100: # Max 100 bars for 15m
                     exit_price = close
+                    exit_reason = "Time Exit"
+                    time_exit = True
+                    
+                if sl_hit or tp_hit or time_exit:
+                    entry = position['entry_price']
                     if direction == "BUY":
                         pnl = exit_price - entry
                     else:
                         pnl = entry - exit_price
-                    pnl_pct = (pnl / entry) * 100 - self.spread_pct * 100
-
+                        
+                    pnl_pct = (pnl / entry) * 100 - (self.spread_pct * 100)
+                    
                     trades.append({
                         "entry_time": position['entry_time'],
                         "exit_time": current_time,
                         "entry_price": round(entry, 5),
                         "exit_price": round(exit_price, 5),
-                        "sl": round(position['sl'], 5),
-                        "tp": round(position['tp'], 5),
-                        "pnl_pct": round(pnl_pct, 3),
+                        "pnl_pct": round(pnl_pct, 2),
                         "direction": direction,
-                        "exit_reason": "Time Exit",
+                        "exit_reason": exit_reason,
                         "bars_held": bars_held
                     })
                     position = None
                     continue
-
-                # === BREAKEVEN LOGIC ===
-                if breakeven_rr > 0 and current_rr >= breakeven_rr and not position.get('breakeven_set'):
-                    # Move SL to breakeven (entry + small buffer)
-                    buffer = initial_risk * 0.1  # 10% of initial risk as buffer
-                    if direction == "BUY":
-                        position['sl'] = entry + buffer
-                    else:
-                        position['sl'] = entry - buffer
-                    position['breakeven_set'] = True
-
-                # === TRAILING STOP LOGIC ===
-                if trailing_enabled and atr > 0 and current_rr > 0.5:
-                    trailing_distance = atr * trailing_atr_mult
+            
+            # Look for Entry
+            if not position:
+                # Pass sliced DF to get_signal (simulates real-time)
+                # Optimization: Pass only last 100 candles to speed up VP calc
+                start_slice = max(0, i-100)
+                df_slice = df.iloc[start_slice:i+1].copy()
+                
+                # Use EliteStrategy.get_signal
+                # Note: get_signal does indicator calc internally if needed, 
+                # but we already added indicators to full DF. 
+                # VP needs to be recalc-ed on the slice though.
+                try:
+                    signal = strategy.get_signal(df_slice)
+                except:
+                    continue
                     
-                    if direction == "BUY":
-                        new_trailing_sl = close - trailing_distance
-                        # Only move up, never down
-                        if new_trailing_sl > position['sl']:
-                            position['sl'] = new_trailing_sl
-                    else:  # SELL
-                        new_trailing_sl = close + trailing_distance
-                        # Only move down, never up
-                        if new_trailing_sl < position['sl']:
-                            position['sl'] = new_trailing_sl
-
-                # LONG position exit logic
-                if direction == "BUY":
-                    # Check SL hit (use Low for worst case)
-                    if low <= position['sl']:
-                        exit_price = position['sl']
-                        pnl = exit_price - entry
-                        pnl_pct = (pnl / entry) * 100 - self.spread_pct * 100
-                        
-                        # Determine if it was trailing SL or initial SL
-                        exit_reason = "Trailing SL" if position['sl'] > position['initial_sl'] else "SL Hit"
-                        if position.get('breakeven_set') and exit_price >= entry:
-                            exit_reason = "Breakeven"
-
-                        trades.append({
-                            "entry_time": position['entry_time'],
-                            "exit_time": current_time,
-                            "entry_price": round(entry, 5),
-                            "exit_price": round(exit_price, 5),
-                            "sl": round(position['sl'], 5),
-                            "tp": round(position['tp'], 5),
-                            "pnl_pct": round(pnl_pct, 3),
-                            "direction": direction,
-                            "exit_reason": exit_reason,
-                            "bars_held": bars_held
-                        })
-                        position = None
-                        continue
-
-                    # Check TP hit (use High for best case)
-                    if high >= position['tp']:
-                        exit_price = position['tp']
-                        pnl = exit_price - entry
-                        pnl_pct = (pnl / entry) * 100 - self.spread_pct * 100
-
-                        trades.append({
-                            "entry_time": position['entry_time'],
-                            "exit_time": current_time,
-                            "entry_price": round(entry, 5),
-                            "exit_price": round(exit_price, 5),
-                            "sl": round(position['sl'], 5),
-                            "tp": round(position['tp'], 5),
-                            "pnl_pct": round(pnl_pct, 3),
-                            "direction": direction,
-                            "exit_reason": "TP Hit",
-                            "bars_held": bars_held
-                        })
-                        position = None
-                        continue
-
-                # SHORT position exit logic
-                elif direction == "SELL":
-                    # Check SL hit (use High for worst case in short)
-                    if high >= position['sl']:
-                        exit_price = position['sl']
-                        pnl = entry - exit_price
-                        pnl_pct = (pnl / entry) * 100 - self.spread_pct * 100
-                        
-                        exit_reason = "Trailing SL" if position['sl'] < position['initial_sl'] else "SL Hit"
-                        if position.get('breakeven_set') and exit_price <= entry:
-                            exit_reason = "Breakeven"
-
-                        trades.append({
-                            "entry_time": position['entry_time'],
-                            "exit_time": current_time,
-                            "entry_price": round(entry, 5),
-                            "exit_price": round(exit_price, 5),
-                            "sl": round(position['sl'], 5),
-                            "tp": round(position['tp'], 5),
-                            "pnl_pct": round(pnl_pct, 3),
-                            "direction": direction,
-                            "exit_reason": exit_reason,
-                            "bars_held": bars_held
-                        })
-                        position = None
-                        continue
-
-                    # Check TP hit (use Low for best case in short)
-                    if low <= position['tp']:
-                        exit_price = position['tp']
-                        pnl = entry - exit_price
-                        pnl_pct = (pnl / entry) * 100 - self.spread_pct * 100
-
-                        trades.append({
-                            "entry_time": position['entry_time'],
-                            "exit_time": current_time,
-                            "entry_price": round(entry, 5),
-                            "exit_price": round(exit_price, 5),
-                            "sl": round(position['sl'], 5),
-                            "tp": round(position['tp'], 5),
-                            "pnl_pct": round(pnl_pct, 3),
-                            "direction": direction,
-                            "exit_reason": "TP Hit",
-                            "bars_held": bars_held
-                        })
-                        position = None
-                        continue
-
-            # No position - check for entry signal
-            if position is None:
-                # Get signal using data up to current candle
-                df_slice = df.iloc[:i+1].copy()
-                signal = strategy.get_signal(df_slice, self.config)
-
-                action = signal.get('action')
-                if action in ['BUY', 'SELL']:
+                if signal['signal'] in ["BUY", "SELL"]:
                     entry_price = current_candle['Close']
-
-                    # Apply spread to entry
-                    if action == 'BUY':
-                        entry_price *= (1 + self.spread_pct)
-                    else:  # SELL
-                        entry_price *= (1 - self.spread_pct)
-
-                    # Calculate SL/TP based on config R:R
-                    base_sl = signal.get('sl', entry_price * (0.99 if action == 'BUY' else 1.01))
-                    sl_distance = abs(entry_price - base_sl)
+                    direction = signal['signal']
                     
-                    if action == 'BUY':
-                        tp = entry_price + (sl_distance * risk_reward)
+                    # Apply Slippage
+                    if direction == "BUY": 
+                        entry_price *= (1 + self.spread_pct)
                     else:
-                        tp = entry_price - (sl_distance * risk_reward)
-
+                        entry_price *= (1 - self.spread_pct)
+                        
                     position = {
                         "entry_idx": i,
-                        "entry_price": entry_price,
                         "entry_time": current_time,
-                        "sl": base_sl,
-                        "initial_sl": base_sl,  # Store original SL for trailing comparison
-                        "tp": tp,
-                        "direction": action,
-                        "reason": signal.get('reason', 'Signal'),
-                        "breakeven_set": False
+                        "entry_price": entry_price,
+                        "direction": direction,
+                        "sl": signal['sl'],
+                        "tp": signal['tp'],
+                        "reason": signal['reason']
                     }
-
+                    
         # Close any open position at end
         if position is not None:
             final_price = df.iloc[-1]['Close']

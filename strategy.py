@@ -1,6 +1,11 @@
 import yfinance as yf
 import pandas as pd
 import ta
+import warnings
+# Suppress FutureWarning from ta library regarding Series.__setitem__
+# We filter by module 'ta' to be safe and cover all submodules
+warnings.filterwarnings("ignore", category=FutureWarning, module="ta")
+
 from datetime import datetime, timezone
 
 class Strategy:

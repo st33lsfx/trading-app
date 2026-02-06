@@ -334,11 +334,24 @@ class LearningEngine:
         if len(self.activity_log) > 300:
             self.activity_log = self.activity_log[-300:]
 
+    
+    def set_protected_tickers(self, tickers: list):
+        """Set list of protected tickers that are harder to blacklist."""
+        self.protected_tickers = set(tickers)
+        print(f"🛡️ Protected Tickers: {len(self.protected_tickers)} assets")
+
     def _evaluate_ticker(self, ticker: str):
         """Evaluate if ticker should be auto-blacklisted."""
         stats = self.ticker_stats[ticker]
-        rules = self.blacklist_rules
+        rules = self.blacklist_rules.copy()
         
+        # Protected Ticker Logic
+        if hasattr(self, 'protected_tickers') and ticker in self.protected_tickers:
+            # Much looser rules for Elite Assets
+            rules["max_consecutive_losses"] = 8  # Allow more drawdown
+            rules["min_win_rate"] = 25.0         # Allow bad streak
+            rules["min_profit_factor"] = 0.4
+            
         if stats["trades"] < rules["min_trades_for_eval"]:
             return
         
@@ -376,7 +389,12 @@ class LearningEngine:
                 bl_date = datetime.fromisoformat(blacklist_date)
                 days_since = (now - bl_date).days
                 
-                if days_since >= self.BLACKLIST_RETRY_DAYS:
+                # Faster retry for Protected Tickers
+                retry_days = self.BLACKLIST_RETRY_DAYS
+                if hasattr(self, 'protected_tickers') and ticker in self.protected_tickers:
+                    retry_days = 2 # Retry after 2 days for Elite assets
+                
+                if days_since >= retry_days:
                     # Reset for probation
                     stats["auto_blacklisted"] = False
                     stats["blacklist_reason"] = None

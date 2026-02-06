@@ -8,6 +8,7 @@ from client import Trading212Client
 from strategy import Strategy
 from mean_reversion_strategy import MeanReversionStrategy
 from hybrid_strategy import HybridStrategy
+from elite_strategy import EliteStrategy
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
@@ -17,7 +18,7 @@ from economic_data import get_economic_calendar
 load_dotenv()
 
 # =====================================================
-# LIVE DEPLOYMENT CONFIGURATION (v3.0)
+# LIVE DEPLOYMENT CONFIGURATION (v3.1 - 15m ELITE)
 # =====================================================
 # BEZPEČNOSTNÍ NASTAVENÍ PRO MALÝ ÚČET (2000 Kč)
 
@@ -31,22 +32,22 @@ CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 4          # Max 3 concurrent (2026 guide: 2-3)
+    MAX_POSITIONS = 3          # Strict limit for 15m scalping
     TRADE_AMOUNT_CZK = 200     # ~$7 per trade
-    MAX_RISK_PCT = 0.006       # 0.6% per trade (2026: 0.5-0.7%)
+    MAX_RISK_PCT = 0.005       # 0.5% per trade (tighter for 15m)
 else:
-    MAX_POSITIONS = 4          # Normal mode
+    MAX_POSITIONS = 5          # Normal mode
     TRADE_AMOUNT_CZK = 200     # ~$8 per trade
-    MAX_RISK_PCT = 0.007       # 0.7% risk
+    MAX_RISK_PCT = 0.008       # 0.8% risk
 
-SL_PCT = 0.01              # Dynamic via Supertrend (this is fallback)
-TP_PCT = 0.02              # R:R 2.0:1 minimum (2026 guide)
-MAX_SCAN_PER_CYCLE = 100   # Víc assetů = víc příležitostí
-INTERVAL = "1h"            # 1h timeframe (Filtered noise, higher PF)
-PERIOD = "60d"             # 60 dní dat pro 1h interval
+SL_PCT = 0.01              # Fallback
+TP_PCT = 0.02              # Fallback
+MAX_SCAN_PER_CYCLE = 20    # Focused scan only
+INTERVAL = "15m"           # 15m timeframe for Scalping/DayTrading
+PERIOD = "60d"             # 60 days (Max buffer for 15m data on YF)
 
 # Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
-TARGET_WATCHLIST_SIZE = 50
+TARGET_WATCHLIST_SIZE = 15 # Only top 15 assets
 MIN_TRADES_FOR_RANK = 3
 
 from capital_client import CapitalClient
@@ -83,37 +84,27 @@ class TradingBot:
         self.max_positions = MAX_POSITIONS
 
         # === STRATEGY SELECTION ===
-        # "momentum" = původní strategie s RSI, ADX, EMA
-        # "mean_reversion" = Bollinger Bands mean reversion (DOPORUČENO)
-        self.strategy_type = "mean_reversion"  # DEFAULT: Mean Reversion
+        # "elite" = EliteStrategy (VWAP + VP + Confluence) - 15m
+        self.strategy_type = "elite"
         
         # =====================================================
-        # HIGH VOLUME + HIGH WR - OVĚŘENO BACKTESTEM (únor 2026)
+        # ELITE STRATEGY CONFIG (15m)
         # =====================================================
-        # Výsledky: 70% WR, 12 obchodů/den, 268 obchodů/měsíc
-        # Return: 23.6% bez páky → 236% s pákou 1:10
-        # 2000 Kč → 6710 Kč měsíčně!
-        # === OPTIMÁLNÍ SETUP + CONFIRMATION CANDLE ===
-        # Původní 5m nastavení s lepším timingem vstupu
         self.strategy_config = {
-            "rsi_buy": 40,               # BUY pod RSI 40
+            "rsi_buy": 60,               # Higher drift allowed in trends
             "rsi_oversold": 40,
-            "rsi_sell": 60,              # SELL nad RSI 60
+            "rsi_sell": 40,
             "rsi_overbought": 60,
-            "adx_min": 25,               # 2026: ADX 25 = regime switch threshold
-            "risk_reward": 2.0,          # R:R 2.0:1 minimum (2026 guide)
-            "atr_sl_mult": 2.0,
-            "max_risk_pct": 0.006,       # 0.6% per trade (2026: 0.5-0.7%)
-            "min_rr_ratio": 2.0,         # 2026: minimum R:R 2.0
-            "require_volume": False,
-            "require_session": False,
-            "enable_shorts": True,
-            # Trend Strategy 2026 params
-            "st_period": 10,             # Supertrend ATR period
-            "st_multiplier": 3.0,        # Supertrend multiplier
-            "hma_fast": 9,               # HMA fast period
-            "hma_slow": 21,              # HMA slow period
-            "min_confluence": 4,         # ELITE: Min 4 of 7 indicators aligned
+            "adx_min": 25,               # Strong trend only
+            "risk_reward": 2.0,          # R:R 2.0 minimum
+            "atr_sl_mult": 1.5,          # Tighter SL for 15m
+            "max_risk_pct": MAX_RISK_PCT,
+            "min_rr_ratio": 2.0,
+            "st_period": 10,
+            "st_multiplier": 3.0,
+            "hma_fast": 9,
+            "hma_slow": 21,
+            "min_confluence": 4,         # Strict confluence
         }
         
         # === HIGH VOLUME SETTINGS ===
@@ -134,118 +125,64 @@ class TradingBot:
         self.smart_analyst = get_smart_analyst()  # ZAPNUTO - Rate limits opraveny
         self.telegram = get_telegram_notifier()   # Telegram notifications
         
-        base_config = self.strategy_config.copy()
-        
-        # Override base config with learned values ONLY if they exist
+        # Override with learned but keep strict boundaries
         if learned:
-            # We map the learned keys to our config keys
-            if "rsi_oversold" in learned: base_config["rsi_oversold"] = learned["rsi_oversold"]
-            if "rsi_overbought" in learned: base_config["rsi_overbought"] = learned["rsi_overbought"]
-            if "atr_sl_mult" in learned: base_config["atr_sl_mult"] = learned["atr_sl_mult"]
-            # Add other learned params that might not be in base config (e.g. min_rr)
-            base_config["min_rr_ratio"] = learned.get("min_rr_ratio", 1.0)
-        else:
-            # If no learned params yet, ensure we have defaults for MeanReversionStrategy
-            base_config["min_rr_ratio"] = 1.0
-            
-        # Hardforce some High Volume settings if aggressive mode is ON (and learning hasn't drastically changed them)
-        # Hardforce settings if aggressive mode is ON (Override learned params if needed)
-        if self.aggressive_mode:
-             target_buy = 40
-             target_sell = 60
+             # Adapt only slightly
+             pass
 
-             self.log(f"⚡ AGGRESSIVE MODE: Enforcing RSI {target_buy}/{target_sell}, min_rr=2.0, 2026 trend system")
-             base_config["rsi_oversold"] = target_buy
-             base_config["rsi_overbought"] = target_sell
-             base_config["min_rr_ratio"] = 2.0  # 2026 guide: R:R 2.0 minimum
-             
-             # CLEAR learned RSI values that override ours
-             if learned:
-                 learned["rsi_oversold"] = target_buy
-                 learned["rsi_overbought"] = target_sell
-                 learned["min_rr_ratio"] = 2.0
-             
-             # Enable shorts for scalping
-             self.strategy_config["enable_shorts"] = True 
-             base_config["enable_shorts"] = True
-             if learned: learned["enable_shorts"] = True
-
-        # STRATEGY INIT - HybridStrategy: Mean Reversion (ADX<25) + Trend 2026 (ADX>=25)
-        self.hybrid_strategy = HybridStrategy({
-            # Mean Reversion params (ranging)
-            "rsi_oversold": base_config.get("rsi_oversold", 40),
-            "rsi_overbought": base_config.get("rsi_overbought", 60),
-            "atr_sl_mult": base_config.get("atr_sl_mult", 2.0),
-            "min_rr_ratio": 2.0,         # 2026: R:R 2.0 minimum
-            "adx_min": 25,               # Regime switch threshold
-            # Trend Strategy 2026 params (6-indicator confluence)
-            "st_period": 10,             # Supertrend ATR period
-            "st_multiplier": 3.0,        # Supertrend multiplier
-            "hma_fast": 9,               # Hull MA fast
-            "hma_slow": 21,              # Hull MA slow
-            "min_confluence": 4,         # ELITE: Need 4 of 8 indicators aligned
-        })
-        # Keep mean_reversion as alias for backward compatibility
+        # STRATEGY INIT
+        self.elite_strategy = EliteStrategy(self.strategy_config)
+        # Keep references for compatibility if needed
+        self.hybrid_strategy = HybridStrategy(self.strategy_config) 
         self.mean_reversion = self.hybrid_strategy.mean_reversion
         
-        self.enable_shorts = learned.get("enable_shorts", self.strategy_config.get("enable_shorts", False))
-        
-        self.log(f"🧠 HybridStrategy Initialized. Regime detection active.")
-        self.log(f"📊 RSI: {self.mean_reversion.rsi_oversold}/{self.mean_reversion.rsi_overbought}")
+        self.log(f"🧠 EliteStrategy (15m VWAP+VP) Initialized.")
+        self.log(f"📊 Timeframe: {INTERVAL}, Period: {PERIOD}")
 
         # UI & Strategy State (Initialized here for immediate access)
         self.scan_results = []
         self.last_trade_times = {}
         
         # =====================================================
-        # BLACKLIST - ZTRÁTOVÉ (aktualizováno únor 2026)
+        # BLACKLIST
         # =====================================================
         self.ticker_blacklist = [
-            # === BLACKLIST - Updated Feb 2026 (Trend Strategy 2026) ===
-            # NOTE: BTC-USD REMOVED - strong trend asset, works great with new trend system
-
-            # Crypto - poor mean reversion performers (but BTC OK for trends!)
-            "ETHUSD", "ETH-USD", "ETH",    # Backtest: -13.8% return
-            "LTCUSD", "LTC-USD",
-            "XRPUSD", "XRP-USD",
-
-            # Forex - consistently unprofitable
-            "EURUSD", "EURUSD=X",
-
-            # Commodities - high spread, erratic for small accounts
-            "XAGUSD", "SI=F", "Silver",
-
-            # JPY pairs (except NZDJPY which trends well)
-            "USDJPY", "USDJPY=X", "EURJPY", "EURJPY=X",
-            "GBPJPY", "GBPJPY=X", "AUDJPY", "AUDJPY=X",
+            "LTCUSD", "LTC-USD", # Still choppy often
+            "Si=F", "Silver", # Spreads
         ]
         
         # =====================================================
-        # KONZERVATIVNÍ SEZNAM - Pouze ověřené profitabilní tickery
+        # ELITE 15 WATCHLIST - The 15 Best Assets (Forex & Crypto)
         # =====================================================
-        # Backtest únor 2026: Pouze LONG pozice, PF > 1
         self.priority_tickers = [
-            # === TOP TREND ASSETS (2026 Guide - Strong Trend Performers) ===
-            # BTC-USD: Unblacklisted - trends strongly, ideal for Supertrend + ADX system
-            {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "pf": 1.45, "wr": 55, "cat": "Crypto"},
+            # === CRYPTO (High Volatility, Good Trends) ===
+            {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "cat": "Crypto"},
+            {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "cat": "Crypto"},
+            {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto"},
+            {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto"}, # Added
+            {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto"},       # Unblacklisted
 
-            # === FOREX - Trending pairs ===
-            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "pf": 1.37, "wr": 70, "cat": "Forex"},
-            {"epic": "NZDJPY", "yf": "NZDJPY=X", "name": "NZD/JPY", "pf": 1.25, "wr": 58, "cat": "Forex"},
-            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "pf": 1.10, "wr": 55, "cat": "Forex"},
-            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "pf": 1.08, "wr": 54, "cat": "Forex"},
-            {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "pf": 1.12, "wr": 56, "cat": "Forex"},
+            # === FOREX MAJORS (Reliable Liquidity for VP) ===
+            {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD", "cat": "Forex"},
+            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "cat": "Forex"},
+            {"epic": "USDJPY", "yf": "USDJPY=X", "name": "USD/JPY", "cat": "Forex"},
+            {"epic": "AUDUSD", "yf": "AUDUSD=X", "name": "AUD/USD", "cat": "Forex"},
+            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "cat": "Forex"},
+            {"epic": "NZDUSD", "yf": "NZDUSD=X", "name": "NZD/USD", "cat": "Forex"},
+            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "cat": "Forex"},
 
-            # === US STOCKS - Strong trend movers ===
-            {"epic": "NVDA", "yf": "NVDA", "name": "NVIDIA", "pf": 1.30, "wr": 60, "cat": "US Stocks"},
-            {"epic": "AAPL", "yf": "AAPL", "name": "Apple", "pf": 1.15, "wr": 55, "cat": "US Stocks"},
-            {"epic": "GOOGL", "yf": "GOOGL", "name": "Google", "pf": 1.12, "wr": 55, "cat": "US Stocks"},
-
-            # === COMMODITIES - Gold trends with geopolitics ===
-            {"epic": "Gold", "yf": "GC=F", "name": "Gold", "pf": 1.20, "wr": 52, "cat": "Commodities"},
+            # === FOREX CROSSES (Structure) ===
+            {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "cat": "Forex"},
+            {"epic": "GBPJPY", "yf": "GBPJPY=X", "name": "GBP/JPY", "cat": "Forex"},
+            {"epic": "EURJPY", "yf": "EURJPY=X", "name": "EUR/JPY", "cat": "Forex"},
         ]
+        # Total: 15 Assets
+        
+        # Pass protected list to Learning Engine to prevent auto-ban
+        self.protected_tickers = [t["yf"] for t in self.priority_tickers]
+        if hasattr(self.learning_engine, 'set_protected_tickers'):
+            self.learning_engine.set_protected_tickers(self.protected_tickers)
 
-        # Celkem: 30 assetů = potenciálně 300+ signálů/den
         # =====================================================
         # AGGRESSIVE MODE - Cíl: 100% měsíčně (2000→4000 Kč)
         # =====================================================
@@ -1072,7 +1009,17 @@ class TradingBot:
                 return False
 
             # Vyber strategii podle nastavení - HYBRID STRATEGY přepíná automaticky
-            if self.strategy_type == "mean_reversion":
+            if self.strategy_type == "elite":
+                # === ELITE STRATEGY (15m VWAP + VP) ===
+                # Logic is fully contained in EliteStrategy class
+                result = self.elite_strategy.get_signal(df)
+                signal = result.get("signal")
+                confidence = result.get("confidence", 0)
+                # Parse additional Elite metadata
+                regime = "TREND" if result.get("adx", 0) > 25 else "RANGING"
+                strategy_used = "ELITE_VP"
+                
+            elif self.strategy_type == "mean_reversion":
                 # HybridStrategy automaticky přepíná mezi mean reversion a trend following
                 result = self.hybrid_strategy.get_signal(df, major_trend=major_trend)
                 signal = result.get("signal")
