@@ -710,14 +710,8 @@ class TradingBot:
             "Crypto": "hierarchy_v1.crypto_currencies_group",
         }
         
-        # Manual List for US Stocks (Top Tech) - Scanning all shares is too heavy (thousands)
-        self.market_categories["US Stocks"] = [
-            {'epic': 'AAPL', 'yf': 'AAPL', 'name': 'Apple'},
-            {'epic': 'TSLA', 'yf': 'TSLA', 'name': 'Tesla'},
-            {'epic': 'NVDA', 'yf': 'NVDA', 'name': 'Nvidia'},
-            {'epic': 'MSFT', 'yf': 'MSFT', 'name': 'Microsoft'},
-            {'epic': 'AMZN', 'yf': 'AMZN', 'name': 'Amazon'},
-        ]
+        # Manual List for US Stocks - EMPTIED to enforce Elite 15 Strategy
+        self.market_categories["US Stocks"] = []
         
         # Add priority tickers first (best backtest results)
         if hasattr(self, 'priority_tickers'):

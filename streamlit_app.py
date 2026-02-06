@@ -1697,7 +1697,7 @@ with tabs[4]:
     col1, col2, col3 = st.columns([2, 1, 1])
 
     # Ticker Selection
-    default_tickers = ["EURUSD=X", "GBPUSD=X", "BTC-USD", "ETH-USD", "GC=F", "^NDX", "AAPL", "TSLA"]
+    default_tickers = ["EURUSD=X", "GBPUSD=X", "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD"]
     if broker_code == "capital" and hasattr(current_bot, 'market_categories'):
         dynamic_tickers = []
         for cat, items in current_bot.market_categories.items():
