@@ -113,7 +113,7 @@ class TradingBot:
             "st_multiplier": 3.0,        # Supertrend multiplier
             "hma_fast": 9,               # HMA fast period
             "hma_slow": 21,              # HMA slow period
-            "min_confluence": 3,         # Min 3 of 6 indicators aligned
+            "min_confluence": 4,         # ELITE: Min 4 of 7 indicators aligned
         }
         
         # === HIGH VOLUME SETTINGS ===

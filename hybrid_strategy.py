@@ -19,13 +19,14 @@ from datetime import datetime
 from ta.trend import ADXIndicator
 
 from mean_reversion_strategy import MeanReversionStrategy
-from trend_strategy import TrendStrategy
+from mean_reversion_strategy import MeanReversionStrategy
+from elite_strategy import EliteStrategy
 
 
 class HybridStrategy:
     """
     Hybrid adaptive strategy for 2026 markets.
-    Combines mean reversion (ranging) and trend following (trending).
+    Combines mean reversion (ranging) and elite trend following (trending).
     """
 
     def __init__(self, config=None):
@@ -39,7 +40,7 @@ class HybridStrategy:
 
         # Initialize sub-strategies
         self.mean_reversion = MeanReversionStrategy(config)
-        self.trend_following = TrendStrategy(config)
+        self.trend_following = EliteStrategy(config)
 
         # Performance tracking per regime
         self.regime_stats = {
