@@ -1,27 +1,30 @@
 """
-Elite Strategy v1.0 (2026 Ultimate Hybrid)
-===========================================
-The "Absolute Best" indicator combination from QuantVPS & NAGA Academy 2026 guides.
-Designed for maximum profitability in volatile ranging + trend phases.
+Elite Strategie v2.0 (2026 Ultimate Hybrid + Volume Profile)
+===========================================================
+Kombinace "Absolutně nejlepších" indikátorů + Volume Profile dle QuantVPS & NAGA Academy 2026.
+Určeno pro maximální ziskovost ve volatilních, do strany jdoucích i trendových fázích.
 
-CORE INDICATORS (7-Point Confluence):
-1. Hull Moving Average (HMA 9/21) - Low-lag trend direction
-2. Supertrend (ATR 10, 3.0) - Trend filter & Dynamic Trailing Stop
-3. ADX (14) - Trend strength gate (>25 = Trending)
-4. Parabolic SAR (0.02, 0.2) - Trailing exit & reversal confirmation
-5. Ichimoku Cloud - Support/Resistance & Cloud Twist
-6. MACD (12,26,9) - Momentum alignment
-7. VWAP - Institutional Fair Value (Price > VWAP = Bullish)
+HLAVNÍ INDIKÁTORY (8-bodová Konfluence):
+1. Hull Moving Average (HMA 9/21) - Rychlý směr trendu (nulový lag)
+2. Supertrend (ATR 10, 3.0) - Filtr trendu & Dynamický Trailing Stop
+3. ADX (14) - Síla trendu (>25 = Trend)
+4. Parabolic SAR (0.02, 0.2) - Výstup & potvrzení obratu
+5. Ichimoku Cloud - Support/Resistance & Twist cloudu
+6. MACD (12,26,9) - Momentum signály
+7. VWAP - Institucionální férová cena (Cena > VWAP = Bullish)
+8. Volume Profile (POC/VAH/VAL) - Struktura trhu & Likvidita
+   - Vstup do trendu: Průraz Value Area (VAH/VAL) s objemovým spikem
+   - Support: Point of Control (POC) jako dynamický support/resistance
 
-ENTRY RULES:
+PRAVIDLA VSTUPU:
 - ADX > 25 (Trend Mode Only)
-- STRICT CONFLUENCE: Mimimum 4 of 7 indicators must align.
-- Multi-Timeframe Alignment (simulated via higher-period settings)
+- PŘÍSNÁ KONFLUENCE: Minimálně 4 z 8 indikátorů musí souhlasit.
+- POTVRZENÍ OBJEMEM: Cena vzhledem k POC/VAH/VAL.
 
 RISK MANAGEMENT:
-- Dynamic Risk: 0.5% - 0.7% based on confluence score.
-- SL: Dynamic ATR-based or Supertrend level.
-- TP: Open interval with Trailing Stop (PSAR/Supertrend).
+- Dynamický Risk: 0.5% - 0.7% dle skóre konfluence.
+- SL: Dynamický (dle ATR nebo Supertrend/POC levelu).
+- TP: Otevřený interval s Trailing Stopem.
 """
 
 import pandas as pd
@@ -34,8 +37,8 @@ from ta.volume import VolumeWeightedAveragePrice
 
 class EliteStrategy:
     """
-    Elite Trading Strategy 2026
-    Combines top-rated indicators for high-probability entries.
+    Elite Trading Strategie 2026
+    Kombinuje top indikátory + Volume Profile pro vstupy s vysokou pravděpodobností.
     """
 
     def __init__(self, config=None):
@@ -65,28 +68,31 @@ class EliteStrategy:
         self.ichi_tenkan = 9
         self.ichi_kijun = 26
         self.ichi_senkou_b = 52
+        
+        # === 7. VOLUME PROFILE ===
+        self.vp_bins = 24  # Granularita pro VP
 
         # === RISK MANAGEMENT ===
         self.min_rr_ratio = self.config.get('min_rr_ratio', 2.0)
-        self.min_confluence = 4  # STRICT: Need 4+ indicators
+        self.min_confluence = self.config.get('min_confluence', 4)  # STRICT: Defaultně 4
         self.atr_sl_mult = self.config.get('atr_sl_mult', 2.0)
         
-        # Internal state
+        # Interní stav
         self._has_real_vwap = False
 
     # =========================================================
-    # INDICATOR CALCULATIONS
+    # VÝPOČET INDIKÁTORŮ
     # =========================================================
 
     def _calculate_wma(self, series, window):
-        """Weighted Moving Average."""
+        """Weighted Moving Average (Vážený klouzavý průměr)."""
         weights = np.arange(1, window + 1)
         return series.rolling(window).apply(
             lambda x: np.dot(x, weights) / weights.sum(), raw=True
         )
 
     def _calculate_hma(self, series, window):
-        """Hull Moving Average - eliminates lag."""
+        """Hull Moving Average - eliminuje zpoždění (lag)."""
         half_len = max(1, int(window / 2))
         sqrt_len = max(1, int(np.sqrt(window)))
         wma_half = self._calculate_wma(series, half_len)
@@ -95,7 +101,7 @@ class EliteStrategy:
         return self._calculate_wma(raw_hma, sqrt_len)
 
     def _calculate_supertrend(self, df):
-        """Calculate Supertrend (Trend + Direction)."""
+        """Výpočet Supertrendu (Trend + Směr)."""
         high, low, close = df['High'], df['Low'], df['Close']
         
         # ATR
@@ -153,31 +159,74 @@ class EliteStrategy:
         return pd.Series(supertrend, index=df.index), pd.Series(direction, index=df.index)
 
     def _calculate_ichimoku(self, df):
-        """Ichimoku Cloud Components."""
+        """Komponenty Ichimoku Cloudu."""
         high, low = df['High'], df['Low']
         
-        # Tenkan (9)
-        high_9 = high.rolling(self.ichi_tenkan).max()
-        low_9 = low.rolling(self.ichi_tenkan).min()
-        tenkan = (high_9 + low_9) / 2
+        tenkan = (high.rolling(self.ichi_tenkan).max() + low.rolling(self.ichi_tenkan).min()) / 2
+        kijun = (high.rolling(self.ichi_kijun).max() + low.rolling(self.ichi_kijun).min()) / 2
         
-        # Kijun (26)
-        high_26 = high.rolling(self.ichi_kijun).max()
-        low_26 = low.rolling(self.ichi_kijun).min()
-        kijun = (high_26 + low_26) / 2
-        
-        # Senkou A (shifted 26)
+        # Posun vpřed
         span_a = ((tenkan + kijun) / 2).shift(self.ichi_kijun)
         
-        # Senkou B (52, shifted 26)
         high_52 = high.rolling(self.ichi_senkou_b).max()
         low_52 = low.rolling(self.ichi_senkou_b).min()
         span_b = ((high_52 + low_52) / 2).shift(self.ichi_kijun)
         
         return span_a, span_b
+        
+    def _calculate_volume_profile(self, df):
+        """Vypočítat POC, VAH, VAL."""
+        if 'Volume' not in df.columns or df['Volume'].sum() == 0:
+            return None
+            
+        # Použij recent window (posledních 50-100 svíček) pro relevanci
+        lookback = min(len(df), 100)
+        subset = df.tail(lookback)
+        
+        price_min = subset['Close'].min()
+        price_max = subset['Close'].max()
+        if price_min == price_max: return None
+        
+        range_size = price_max - price_min
+        bin_size = range_size / self.vp_bins
+        
+        # Binning (Rozdělení do košů)
+        bins = {}
+        for idx, row in subset.iterrows():
+            p = row['Close']
+            v = row['Volume']
+            bin_idx = int((p - price_min) / bin_size)
+            bins[bin_idx] = bins.get(bin_idx, 0) + v
+            
+        # POC (Point of Control)
+        if not bins: return None
+        poc_bin = max(bins, key=bins.get)
+        poc_price = price_min + (poc_bin + 0.5) * bin_size
+        
+        # Value Area (70% objemu)
+        total_vol = sum(bins.values())
+        sorted_bins = sorted(bins.items(), key=lambda x: x[1], reverse=True)
+        
+        va_vol = 0
+        va_bins = []
+        for b_idx, vol in sorted_bins:
+            va_vol += vol
+            va_bins.append(b_idx)
+            if va_vol >= total_vol * 0.70:
+                break
+                
+        va_high = price_min + (max(va_bins) + 1) * bin_size
+        va_low = price_min + min(va_bins) * bin_size
+        
+        return {
+            "poc": poc_price,
+            "vah": va_high,
+            "val": va_low,
+            "total_vol": total_vol
+        }
 
     def add_indicators(self, df):
-        """Add all 7 Elite Indicators."""
+        """Přidat všech 8 Elite indikátorů."""
         df = df.copy()
         close = df['Close']
         
@@ -218,29 +267,29 @@ class EliteStrategy:
             df['vwap'] = close
             self._has_real_vwap = False
 
-        # ATR & RSI (Helpers)
+        # ATR & RSI (Pomocné)
         df['atr'] = AverageTrueRange(df['High'], df['Low'], close, window=14).average_true_range()
         df['rsi'] = RSIIndicator(close, window=14).rsi()
 
         return df
 
     # =========================================================
-    # CONFLUENCE SCORING (The Core Logic)
+    # SKÓROVÁNÍ KONFLUENCE (Jádro logiky)
     # =========================================================
 
-    def _score_confluence(self, row, direction):
+    def _score_confluence(self, row, direction, vp_data):
         """
-        Check alignment of all 7 indicators.
-        Returns: score (0-7), max_score
+        Zkontroluje shodu všech 8 indikátorů.
+        Returns: score (0-8), max_score, details
         """
         score = 0
-        max_score = 7
+        max_score = 8
         details = []
         indicators_used = []
         is_buy = (direction == "BUY")
         close = row['Close']
 
-        # 1. HMA (Direction)
+        # 1. HMA (Směr)
         if not pd.isna(row['hma_fast']) and not pd.isna(row['hma_slow']):
             hma_ok = (row['hma_fast'] > row['hma_slow']) if is_buy else (row['hma_fast'] < row['hma_slow'])
             if hma_ok:
@@ -252,7 +301,7 @@ class EliteStrategy:
         else:
             max_score -= 1
 
-        # 2. Supertrend (Direction)
+        # 2. Supertrend (Směr)
         st_ok = (row['st_direction'] == 1) if is_buy else (row['st_direction'] == -1)
         if st_ok:
             score += 1
@@ -261,8 +310,7 @@ class EliteStrategy:
         else:
             details.append(f"❌ Supertrend")
             
-        # 3. Parabolic SAR (Position)
-        # Buy if Price > PSAR, Sell if Price < PSAR
+        # 3. Parabolic SAR (Pozice)
         psar_ok = (close > row['psar']) if is_buy else (close < row['psar'])
         if psar_ok:
             score += 1
@@ -280,7 +328,7 @@ class EliteStrategy:
         else:
             details.append(f"❌ MACD")
 
-        # 5. Ichimoku (Cloud Filter)
+        # 5. Ichimoku (Filtr Cloudu)
         span_a, span_b = row['ichi_span_a'], row['ichi_span_b']
         if not pd.isna(span_a) and not pd.isna(span_b):
             cloud_top = max(span_a, span_b)
@@ -295,7 +343,7 @@ class EliteStrategy:
         else:
             max_score -= 1
 
-        # 6. VWAP (Institutional Value)
+        # 6. VWAP (Institucionální cena)
         if self._has_real_vwap:
             vwap_ok = (close > row['vwap']) if is_buy else (close < row['vwap'])
             if vwap_ok:
@@ -308,7 +356,7 @@ class EliteStrategy:
             max_score -= 1
             details.append("⬜ VWAP (No Vol)")
 
-        # 7. ADX DI (Directional Strength)
+        # 7. ADX DI (Směrová síla)
         di_ok = (row['di_plus'] > row['di_minus']) if is_buy else (row['di_minus'] > row['di_plus'])
         if di_ok:
             score += 1
@@ -317,63 +365,111 @@ class EliteStrategy:
         else:
             details.append(f"❌ DI+/-")
 
+        # 8. VOLUME PROFILE (Struktura)
+        if vp_data:
+            poc = vp_data['poc']
+            vah = vp_data['vah']
+            val = vp_data['val']
+            
+            # Logika: Průraz Value Area NEBO Odraz od POC
+            # Pro Trend preferujeme Breakout nebo Cena > POC (Bull) / Cena < POC (Bear)
+            
+            if is_buy:
+                # Bullish: Cena nad POC, ideálně proráží VAH
+                vp_ok = close > poc
+                if close > vah: # Silný Breakout
+                    score += 1  # Bonus bod za breakout? Ne, striktně binární
+                    details.append(f"✅ VP (Průraz VAH)")
+                elif vp_ok:
+                    details.append(f"✅ VP (>POC)")
+                else:
+                    details.append(f"❌ VP (<POC)")
+                    vp_ok = False
+            else:
+                # Bearish
+                vp_ok = close < poc
+                if close < val:
+                     details.append(f"✅ VP (Průraz VAL)")
+                elif vp_ok:
+                     details.append(f"✅ VP (<POC)")
+                else:
+                     details.append(f"❌ VP (>POC)")
+                     vp_ok = False
+                     
+            if vp_ok:
+                score += 1
+                indicators_used.append("VolProfile")
+        else:
+            max_score -= 1
+            details.append("⬜ VP (No Data)")
+
         return score, max_score, indicators_used, details
 
     # =========================================================
-    # SIGNAL GENERATION
+    # GENERACE SIGNÁLŮ
     # =========================================================
 
     def get_signal(self, df, config=None, major_trend="NEUTRAL"):
         """
-        Get Elite Signal.
+        Získej Elite Signál.
         """
         if len(df) < 60:
-            return {"signal": "NEUTRAL", "confidence": 0, "reason": "Initializing...", "rsi": 50}
+            return {"signal": "NEUTRAL", "confidence": 0, "reason": "Inicializace...", "rsi": 50}
 
         df = self.add_indicators(df)
         row = df.iloc[-1]
-        prev = df.iloc[-2]
         
         close = row['Close']
         adx = row['adx']
         atr = row['atr']
         rsi = row['rsi']
         
-        # 1. GATE: Trend Strength (ADX)
+        # VP Calc
+        vp_data = self._calculate_volume_profile(df)
+        
+        # 1. GATE: Síla Trendu (ADX)
         if adx < self.adx_min:
             return {
                 "signal": "NEUTRAL", 
                 "confidence": 0, 
-                "reason": f"Weak Trend (ADX {adx:.1f} < {self.adx_min})",
+                "reason": f"Slabý Trend (ADX {adx:.1f} < {self.adx_min})",
                 "rsi": rsi, "adx": adx
             }
 
-        # 2. DETERMINE POTENTIAL DIRECTION (from Supertrend)
+        # 2. URČENÍ SMĚRU (dle Supertrendu)
         direction = "BUY" if row['st_direction'] == 1 else "SELL"
         
-        # 3. CHECK CONFIRMATION CANDLE
+        # 3. KONTROLA POTVRZOVACÍ SVÍČKY (Confirmation Candle)
         is_bullish = close > df.iloc[-1]['Open']
         if direction == "BUY" and not is_bullish:
-             return {"signal": "NEUTRAL", "confidence": 0, "reason": "Wait for Bullish Candle", "rsi": rsi}
-        if direction == "SELL" and is_bullish: # Bearish candle check (Open > Close)
-             return {"signal": "NEUTRAL", "confidence": 0, "reason": "Wait for Bearish Candle", "rsi": rsi}
+             return {"signal": "NEUTRAL", "confidence": 0, "reason": "Čekám na Bullish svíčku", "rsi": rsi, "adx": adx}
+        if direction == "SELL" and is_bullish:
+             return {"signal": "NEUTRAL", "confidence": 0, "reason": "Čekám na Bearish svíčku", "rsi": rsi, "adx": adx}
              
-        # 4. CONFLUENCE CHECK
-        score, max_s, tools, details = self._score_confluence(row, direction)
+        # 4. KONTROLA KONFLUENCE
+        score, max_s, tools, details = self._score_confluence(row, direction, vp_data)
         
         required = min(self.min_confluence, max_s)
         if score < required:
             return {
                 "signal": "NEUTRAL",
                 "confidence": 0,
-                "reason": f"Low Confluence ({score}/{max_s})",
+                "reason": f"Nízká Konfluence ({score}/{max_s})",
                 "rsi": rsi, "adx": adx, "filters": details
             }
             
         # 5. RISK MANAGEMENT
         sl_base = row['supertrend']
         
-        # Ensure Min/Max Stop Distance
+        # POC Ochrana: Pokud je POC mezi Vstupem a SL, použij POC jako Support/Resistance
+        if vp_data:
+            poc = vp_data['poc']
+            if direction == "BUY" and close > poc > sl_base:
+                sl_base = poc # Přitáhni SL k POC
+            elif direction == "SELL" and close < poc < sl_base:
+                sl_base = poc
+
+        # Validace Min/Max Vzdálenosti SL
         dist = abs(close - sl_base)
         min_dist = atr * 1.5
         max_dist = close * 0.04 # Max 4% risk
@@ -388,8 +484,15 @@ class EliteStrategy:
             sl = close + dist
             tp = close - (dist * self.min_rr_ratio)
             
-        # Confidence Scaling
+        # Škálování Confidence
         confidence = 0.6 + (score/max_s * 0.3) + (min(adx, 50)/200)
+        
+        # Bonus pro Volume Spike
+        recent_vol = df['Volume'].tail(3).mean()
+        avg_vol = df['Volume'].mean()
+        if avg_vol > 0 and recent_vol > (avg_vol * 1.5):
+            confidence += 0.05
+            details.append("⚡ Vol Spike")
         
         return {
             "signal": direction,
@@ -398,11 +501,11 @@ class EliteStrategy:
             "tp": round(tp, 4),
             "rsi": rsi,
             "adx": adx,
-            "reason": f"ELITE {direction}: Score {score}/{max_s}, ADX {adx:.0f}",
+            "reason": f"ELITE {direction}: Skóre {score}/{max_s}, ADX {adx:.0f}",
             "filters": details,
-            "strategy": "ELITE_2026",
+            "strategy": "ELITE_2026_VP",
             "indicators_used": tools
         }
 
 if __name__ == "__main__":
-    print("Elite Strategy Loaded.")
+    print("Elite Strategy (Integrovaný VP) načtena.")

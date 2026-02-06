@@ -148,6 +148,7 @@ class AdvancedStrategy:
             "poc": poc_price,
             "va_high": va_high,
             "va_low": va_low,
+            "total_vol": total_volume,
             "volume_at_price": volume_at_price
         }
 

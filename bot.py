@@ -183,7 +183,7 @@ class TradingBot:
             "st_multiplier": 3.0,        # Supertrend multiplier
             "hma_fast": 9,               # Hull MA fast
             "hma_slow": 21,              # Hull MA slow
-            "min_confluence": 3,         # Need 3 of 6 indicators aligned
+            "min_confluence": 4,         # ELITE: Need 4 of 8 indicators aligned
         })
         # Keep mean_reversion as alias for backward compatibility
         self.mean_reversion = self.hybrid_strategy.mean_reversion
