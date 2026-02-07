@@ -18,12 +18,12 @@ from economic_data import get_economic_calendar
 load_dotenv()
 
 # =====================================================
-# LIVE DEPLOYMENT CONFIGURATION (v3.1 - 15m ELITE)
+# LIVE DEPLOYMENT CONFIGURATION (v3.2 - FINAL LIVE DEPLOY)
 # =====================================================
-# BEZPEČNOSTNÍ NASTAVENÍ PRO MALÝ ÚČET (2000 Kč)
+# BEZPEČNOSTNÍ NASTAVENÍ PRO MALÝ ÚČET (2000-3000 Kč)
 
-# MODE TOGGLE - Změň na False pro LIVE produkci
-DRY_RUN = False  # True = loguje trades bez exekuce, False = skutečné obchody
+# MODE TOGGLE
+DRY_RUN = True   # v3.2: START IN DRY-RUN — verify signals first, then set False
 
 # API MODE - "demo" nebo "live"
 CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
@@ -32,13 +32,25 @@ CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 4          # Strict limit for 15m scalping
+    MAX_POSITIONS = 3          # v3.2: Sníženo z 4 na 3 pro bezpečnost
     TRADE_AMOUNT_CZK = 200     # ~$7 per trade
-    MAX_RISK_PCT = 0.005       # 0.5% per trade (tighter for 15m)
+    MAX_RISK_PCT = 0.002       # v3.2: START at 0.2% (ramps up after 20 trades)
 else:
     MAX_POSITIONS = 5          # Normal mode
     TRADE_AMOUNT_CZK = 200     # ~$8 per trade
-    MAX_RISK_PCT = 0.008       # 0.8% risk
+    MAX_RISK_PCT = 0.005       # 0.5% risk
+
+# === RISK RAMP-UP SCHEDULE (v3.2) ===
+RISK_RAMP_SCHEDULE = {
+    0: 0.002,    # Trades 1-20: 0.2% risk (ultra-safe validation)
+    20: 0.003,   # Trades 21-50: 0.3% risk (building confidence)
+    50: 0.005,   # Trades 51+: 0.5% risk (full operational)
+}
+
+# === SAFETY LIMITS (v3.2) ===
+MAX_CONSECUTIVE_LOSSES = 3     # Auto-pause after 3 consecutive losses
+DRAWDOWN_ALERT_PCT = 3.0       # Telegram alert at 3% drawdown
+DRAWDOWN_EMERGENCY_PCT = 8.0   # Emergency stop at 8% drawdown
 
 SL_PCT = 0.01              # Fallback
 TP_PCT = 0.02              # Fallback
@@ -97,14 +109,14 @@ class TradingBot:
             "rsi_overbought": 60,
             "adx_min": 25,               # Strong trend only
             "risk_reward": 2.0,          # R:R 2.0 minimum
-            "atr_sl_mult": 1.5,          # Tighter SL for 15m
+            "atr_sl_mult": 3.0,          # Base ATR mult (overridden per asset class)
             "max_risk_pct": MAX_RISK_PCT,
             "min_rr_ratio": 2.0,
             "st_period": 10,
             "st_multiplier": 3.0,
             "hma_fast": 9,
             "hma_slow": 21,
-            "min_confluence": 4,         # Strict confluence
+            "min_confluence": 3,         # Relaxed: 3 indicators (was 4) for more viable trades
         }
         
         # === HIGH VOLUME SETTINGS ===
@@ -211,9 +223,11 @@ class TradingBot:
         self.max_crypto_positions = 3  # Více crypto (nejvíc trades)
         self.max_stock_positions = 1
 
-        # Drawdown protection
-        self.max_drawdown_pct = 20.0  # 20% max drawdown
+        # Drawdown protection (v3.2: tiered alerts)
+        self.max_drawdown_pct = DRAWDOWN_EMERGENCY_PCT  # 8% emergency stop
+        self.drawdown_alert_pct = DRAWDOWN_ALERT_PCT    # 3% telegram alert
         self.initial_balance = None
+        self._drawdown_alerted = False  # Track if alert already sent
 
         # Spread filter - přísnější
         self.max_spread_pct = 0.10    # Max 0.1% spread
@@ -222,6 +236,11 @@ class TradingBot:
         self.session_trades = []
         self.wins = 0
         self.losses = 0
+
+        # === v3.2: CONSECUTIVE LOSS TRACKER + AUTO-PAUSE ===
+        self._consecutive_losses = 0
+        self._auto_paused = False
+        self._total_live_trades = 0  # Counter for risk ramp-up
 
         # Compounding - zvyšuj trade_amount s profitem
         self.compound_profits = True
@@ -385,31 +404,62 @@ class TradingBot:
             
             # Apply streak adjustment
             adjusted_amount = base_trade_amount * streak_multiplier
-            
-            # Clamp to safe limits: Min $3, Max $50
-            self.trade_amount = max(3.0, min(50.0, adjusted_amount))
+
+            # Clamp to safe limits IN CZK (account currency)
+            # Min 50 CZK (~$2), Max 500 CZK (~$20) per trade margin
+            self.trade_amount = max(50.0, min(500.0, adjusted_amount))
 
             if growth_factor > 1.1:
                 self.log(f"📈 COMPOUND: Balance ${balance:.2f} (+{(growth_factor-1)*100:.0f}%), Trade: ${self.trade_amount:.2f} (x{streak_multiplier:.2f})")
         except:
             pass
     
+    def get_current_risk_pct(self):
+        """v3.2: Get risk % based on ramp-up schedule."""
+        trades = getattr(self, '_total_live_trades', 0)
+        risk = MAX_RISK_PCT  # default
+        for threshold in sorted(RISK_RAMP_SCHEDULE.keys(), reverse=True):
+            if trades >= threshold:
+                risk = RISK_RAMP_SCHEDULE[threshold]
+                break
+        return risk
+
     def record_trade_result(self, is_win):
-        """Record trade result for streak tracking."""
+        """Record trade result for streak tracking + auto-pause."""
         if not hasattr(self, '_last_results'):
             self._last_results = []
-        
+
         self._last_results.append('W' if is_win else 'L')
-        
+        self._total_live_trades = getattr(self, '_total_live_trades', 0) + 1
+
         # Keep only last 10 results
         if len(self._last_results) > 10:
             self._last_results.pop(0)
-        
+
         # Update counters
         if is_win:
             self.wins = getattr(self, 'wins', 0) + 1
+            self._consecutive_losses = 0
         else:
             self.losses = getattr(self, 'losses', 0) + 1
+            self._consecutive_losses = getattr(self, '_consecutive_losses', 0) + 1
+
+        # === AUTO-PAUSE after MAX_CONSECUTIVE_LOSSES ===
+        if self._consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+            self._auto_paused = True
+            self.log(f"🛑 AUTO-PAUSE: {self._consecutive_losses} consecutive losses! Trading paused.")
+            if hasattr(self, 'telegram') and self.telegram.enabled:
+                self.telegram.send_message(
+                    f"🛑 <b>AUTO-PAUSE</b>\n\n"
+                    f"{self._consecutive_losses} consecutive losses.\n"
+                    f"Trading paused until manual resume.\n"
+                    f"Total: {self.wins}W / {self.losses}L"
+                )
+
+        # Log risk ramp status
+        risk_pct = self.get_current_risk_pct()
+        self.log(f"📊 Trade #{self._total_live_trades}: {'WIN' if is_win else 'LOSS'} | "
+                 f"Streak: {self._consecutive_losses}L | Risk: {risk_pct*100:.1f}%")
 
     def get_optimal_trade_size(self, epic, current_price):
         """Vypočítej optimální velikost pozice pro daný instrument."""
@@ -418,22 +468,65 @@ class TradingBot:
             inst_info = self.client.get_instrument_info(epic)
             min_size = inst_info.get('min_size', 0.1)
             margin_factor = inst_info.get('margin_factor', 0.05)
-
-            # Aktualizuj trade_amount podle compoundingu
+            
+            # Pevný kurz pro bezpečný výpočet (raději konzervativní)
+            FX_USD_CZK = 24.0
+            FX_EUR_CZK = 26.0
+            
+            # Aktualizuj trade_amount podle compoundingu (v CZK)
             self.update_trade_amount_compound()
+            # self.trade_amount je nyní v CZK (např. 200)
 
             # Vypočítej velikost
             if current_price > 0:
-                # Kolik můžeme koupit za trade_amount
-                raw_size = self.trade_amount / (current_price * margin_factor)
+                # 1. Konverze ceny instrumentu do CZK
+                # Většina instrumentů je v USD (Crypto, US Stocks) nebo v Quote měně (Forex)
+                # Pro zjednodušení předpokládáme, že pokud není měna CZK, musíme konvertovat
+                
+                # Odhad konverzního faktoru podle názvu (Crypto/Stocks = USD, Forex = Quote Ccy)
+                conversion_rate = 1.0
+                if "USD" in epic or "BTC" in epic or "ETH" in epic: # USD assets
+                     conversion_rate = FX_USD_CZK
+                elif "EUR" in epic: # Euro assets (pokud existují)
+                     conversion_rate = FX_EUR_CZK
+                
+                # Výpočet Marginu na 1 jednotku v CZK
+                # CostPerUnit_CZK = Price_Asset * Conversion * MarginFactor
+                cost_per_unit_czk = current_price * conversion_rate * margin_factor
+                
+                if cost_per_unit_czk > 0:
+                    raw_size = self.trade_amount / cost_per_unit_czk
+                else:
+                    raw_size = min_size
 
                 # Zaokrouhli a ověř minimum
-                size = max(min_size, round(raw_size, 3))
+                # Pokud je vypočítaná velikost MENŠÍ než minimum, musíme zkontrolovat, 
+                # jestli si můžeme dovolit to minimum.
+                
+                if raw_size < min_size:
+                    # Check cost of min_size
+                    min_cost_czk = min_size * cost_per_unit_czk
+                    if min_cost_czk > (self.trade_amount * 1.5): # Povolíme max 50% překročení
+                         self.log(f"⚠️ SKIP {epic}: Minimum size cost {min_cost_czk:.0f} CZK > Limit {self.trade_amount:.0f} CZK")
+                         return 0, 0, 0 # Skip trade
+                    else:
+                         size = min_size
+                else:
+                    size = round(raw_size, 3) # TODO: Respektovat 'lot_step' from broker info
+                
+                # Final sanity check against decimals from broker info if available
+                # Prozatím jen basic round
+                step = inst_info.get('step', 0.01)
+                if step: 
+                    import math
+                    # Round down to nearest step
+                    size = math.floor(size / step) * step
 
                 return size, min_size, margin_factor
 
             return min_size, min_size, margin_factor
-        except:
+        except Exception as e:
+            self.log(f"Size Calc Error: {e}")
             return 0.1, 0.1, 0.05
 
     def calculate_kelly_size(self, base_amount):
@@ -498,7 +591,7 @@ class TradingBot:
             return True, "OK"  # Allow if can't check
 
     def check_drawdown_protection(self):
-        """Stop trading if account drawdown exceeds limit."""
+        """v3.2: Tiered drawdown protection with Telegram alerts."""
         try:
             acc = self.client.get_account_info()
             accounts = acc.get('accounts', [])
@@ -513,8 +606,30 @@ class TradingBot:
                 # Calculate drawdown
                 if self.initial_balance > 0:
                     drawdown_pct = ((self.initial_balance - balance) / self.initial_balance) * 100
+
+                    # Level 1: Alert at DRAWDOWN_ALERT_PCT (3%)
+                    if drawdown_pct >= self.drawdown_alert_pct and not self._drawdown_alerted:
+                        self._drawdown_alerted = True
+                        self.log(f"⚠️ DRAWDOWN ALERT: -{drawdown_pct:.1f}% (threshold: {self.drawdown_alert_pct}%)")
+                        if hasattr(self, 'telegram') and self.telegram.enabled:
+                            self.telegram.send_message(
+                                f"⚠️ <b>DRAWDOWN ALERT</b>\n\n"
+                                f"Drawdown: <code>-{drawdown_pct:.1f}%</code>\n"
+                                f"Balance: {balance:.0f} CZK\n"
+                                f"Initial: {self.initial_balance:.0f} CZK\n\n"
+                                f"Bot continues trading. Emergency stop at -{self.max_drawdown_pct:.0f}%."
+                            )
+
+                    # Level 2: Emergency stop at DRAWDOWN_EMERGENCY_PCT (8%)
                     if drawdown_pct >= self.max_drawdown_pct:
-                        return False, f"Drawdown protection: -{drawdown_pct:.1f}%"
+                        if hasattr(self, 'telegram') and self.telegram.enabled:
+                            self.telegram.send_message(
+                                f"🛑 <b>EMERGENCY STOP</b>\n\n"
+                                f"Drawdown: <code>-{drawdown_pct:.1f}%</code>\n"
+                                f"All trading stopped.\n"
+                                f"Balance: {balance:.0f} CZK"
+                            )
+                        return False, f"EMERGENCY STOP: Drawdown -{drawdown_pct:.1f}%"
 
             return True, "OK"
         except:
@@ -532,6 +647,101 @@ class TradingBot:
         if epic.endswith('USD') and len(epic) > 6:
             return "Crypto"
         return "US Stocks"
+
+    def detect_asset_class(self, epic, yf_ticker=""):
+        """Detect asset class for risk profile selection."""
+        epic_upper = epic.upper()
+        yf_upper = yf_ticker.upper()
+
+        # Crypto detection
+        crypto_tokens = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOT", "DOGE",
+                         "AVAX", "LINK", "MATIC", "LTC", "UNI", "ATOM"]
+        for token in crypto_tokens:
+            if token in epic_upper or token in yf_upper:
+                return "crypto"
+        if "-USD" in yf_upper and "=" not in yf_upper:
+            return "crypto"
+
+        # Forex detection
+        if "=X" in yf_upper:
+            return "forex"
+        forex_pairs = ["EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]
+        if len(epic_upper) == 6 and any(c in epic_upper for c in forex_pairs):
+            return "forex"
+
+        return "default"
+
+    def calculate_risk_based_size(self, epic, sl_distance, current_price, asset_class="default"):
+        """
+        Calculate position size based on risk management formula:
+        qty = (equity × risk_pct) / (SL_distance_per_unit × conversion_rate)
+
+        v3.2: Uses ramp-up schedule for risk_pct.
+        """
+        try:
+            # Get account equity
+            acc = self.client.get_account_info()
+            accounts = acc.get('accounts', [])
+            if not accounts:
+                return 0
+
+            equity = accounts[0].get('balance', {}).get('balance', 0)
+            if equity <= 0:
+                return 0
+
+            # v3.2: Use ramp-up risk % instead of fixed MAX_RISK_PCT
+            risk_pct = self.get_current_risk_pct()
+            risk_amount_czk = equity * risk_pct
+
+            # Conversion: most assets priced in USD
+            FX_USD_CZK = 24.0
+            FX_EUR_CZK = 26.0
+
+            if "EUR" in epic.upper() and "USD" not in epic.upper():
+                conversion = FX_EUR_CZK
+            else:
+                conversion = FX_USD_CZK
+
+            # SL distance is in asset price units (e.g., $475 for BTC, 0.0054 for EURUSD)
+            risk_per_unit = sl_distance * conversion  # CZK per unit of SL
+
+            if risk_per_unit <= 0:
+                return 0
+
+            # Position size
+            raw_qty = risk_amount_czk / risk_per_unit
+
+            # Get broker constraints
+            inst_info = self.client.get_instrument_info(epic)
+            min_size = inst_info.get('min_size', 0.01)
+            max_size = inst_info.get('max_size', 100000)
+
+            if raw_qty < min_size:
+                # Check if min size risk is acceptable (max 2% of equity)
+                min_risk_czk = min_size * sl_distance * conversion
+                max_acceptable = equity * 0.02  # Never risk more than 2% per trade
+                if min_risk_czk > max_acceptable:
+                    self.log(f"⚠️ SKIP {epic}: Min size risk {min_risk_czk:.0f} CZK > 2% equity ({max_acceptable:.0f} CZK)")
+                    return 0
+                raw_qty = min_size
+                self.log(f"📐 {epic}: Using min size {min_size} (risk: {min_risk_czk:.1f} CZK = {min_risk_czk/equity*100:.1f}% equity)")
+
+            # Round down to step
+            step = inst_info.get('step', 0.01)
+            if step and step > 0:
+                import math
+                raw_qty = math.floor(raw_qty / step) * step
+
+            raw_qty = min(raw_qty, max_size)
+
+            actual_risk = raw_qty * sl_distance * conversion
+            self.log(f"📐 Risk Sizing: {raw_qty} × SL {sl_distance:.5f} = {actual_risk:.1f} CZK ({actual_risk/equity*100:.2f}% equity)")
+
+            return raw_qty
+
+        except Exception as e:
+            self.log(f"Risk sizing error: {e}")
+            return 0
 
     def set_active_categories(self, categories):
         """Update active scanning categories."""
@@ -1002,11 +1212,14 @@ class TradingBot:
                 })
                 return False
 
+            # Detect asset class for risk profile
+            asset_class = self.detect_asset_class(t212_ticker, yf_ticker)
+
             # Vyber strategii podle nastavení - HYBRID STRATEGY přepíná automaticky
             if self.strategy_type == "elite":
                 # === ELITE STRATEGY (15m VWAP + VP) ===
-                # Logic is fully contained in EliteStrategy class
-                result = self.elite_strategy.get_signal(df)
+                # Pass asset_class for volatility-appropriate SL/TP
+                result = self.elite_strategy.get_signal(df, asset_class=asset_class)
                 signal = result.get("signal")
                 confidence = result.get("confidence", 0)
                 # Parse additional Elite metadata
@@ -1203,51 +1416,61 @@ class TradingBot:
                         self.log(f"Invalid price for {t212_ticker}: {last_price}")
                         return False
 
-                    # Get actual minimum size from API
-                    try:
-                        inst_info = self.client.get_instrument_info(t212_ticker)
-                        min_size = inst_info.get('min_size', 0.1)
-                        max_size = inst_info.get('max_size', 100000)
-                    except:
-                        min_size = 0.1
-                        max_size = 100000
-
-                    # Calculate quantity based on trade amount
-                    raw_qty = adjusted_trade_amount / last_price
-                    qty = round(raw_qty, 2)
-
-                    # Enforce API minimum
-                    if qty < min_size:
-                        # Check if we can afford minimum (with margin ~3-5%)
-                        min_cost = min_size * last_price * 0.03  # ~3% margin for CFDs
-                        if min_cost > adjusted_trade_amount:
-                            self.log(f"Skipping {t212_ticker}: Min size {min_size} needs ${min_cost:.2f} margin")
-                            return False
-                        qty = min_size
-
-                    # Cap at max size
-                    if qty > max_size:
-                        qty = max_size
-
                     # Get protection levels from strategy
                     stop_price = result.get("sl")
                     limit_price = result.get("tp")
 
-                    val = qty * last_price
+                    # === RISK-BASED POSITION SIZING (v3.1 FIX) ===
+                    # Calculate SL distance for risk-based sizing
+                    if stop_price and last_price > 0:
+                        sl_distance = abs(last_price - stop_price)
+                    else:
+                        # Fallback: use asset-class appropriate default
+                        from elite_strategy import EliteStrategy
+                        risk_profile = EliteStrategy.RISK_PROFILES.get(asset_class, EliteStrategy.RISK_PROFILES["default"])
+                        sl_distance = last_price * risk_profile["min_sl_pct"]
+
+                    if sl_distance <= 0:
+                        self.log(f"⚠️ {t212_ticker}: Invalid SL distance, skipping")
+                        return False
+
+                    # Use risk-based sizing
+                    qty = self.calculate_risk_based_size(t212_ticker, sl_distance, last_price, asset_class)
+                    if qty <= 0:
+                        return False
+
+                    # === DETAILED TRADE LOGGING (v3.2) ===
+                    sl_pct = sl_distance / last_price * 100
+                    tp_distance = abs(last_price - limit_price) if limit_price else 0
+                    tp_pct = tp_distance / last_price * 100 if last_price > 0 else 0
+                    rr_actual = tp_distance / sl_distance if sl_distance > 0 else 0
+                    atr_val = result.get('atr', 0)
+                    confluence = result.get('confluence_score', 0)
+                    risk_pct_now = self.get_current_risk_pct()
+
                     action_word = "Buying" if signal == "BUY" else "Shorting"
-                    self.log(f"{action_word} {qty} of {t212_ticker} @ ${last_price:.4f} (Min: {min_size})")
-                    self.log(f"Protection: SL {stop_price}, TP {limit_price}")
+                    self.log(f"{'='*50}")
+                    self.log(f"📊 TRADE #{getattr(self, '_total_live_trades', 0)+1} | {action_word} {qty} {t212_ticker} @ ${last_price:.4f}")
+                    self.log(f"   Asset: {asset_class} | Confidence: {confidence:.0%} | Confluence: {confluence}/6")
+                    self.log(f"   SL: {stop_price:.5f} ({sl_pct:.2f}%) | TP: {limit_price:.5f} ({tp_pct:.2f}%) | R:R {rr_actual:.1f}")
+                    self.log(f"   Risk: {risk_pct_now*100:.1f}% equity | Reason: {reason}")
+                    self.log(f"{'='*50}")
 
                     # === DRY-RUN MODE CHECK ===
                     if self.dry_run:
-                        self.log(f"🔵 DRY-RUN: {signal} {qty} {t212_ticker} @ ${last_price:.4f} (SL: {stop_price}, TP: {limit_price})")
-                        self.log(f"🔵 DRY-RUN: Trade NOT executed - dry_run mode active")
-                        
-                        # Telegram notify o dry-run
+                        self.log(f"🔵 DRY-RUN: Trade NOT executed — dry_run mode active")
+
                         if hasattr(self, 'telegram') and self.telegram.enabled:
-                            self.telegram.send_message(f"🔵 DRY-RUN: {signal} {t212_ticker} @ ${last_price:.4f}")
-                        
-                        self.last_trade_times[yf_ticker] = (time.time(), signal)  # Uložit směr
+                            self.telegram.send_message(
+                                f"🔵 <b>DRY-RUN SIGNAL</b>\n\n"
+                                f"<b>{signal}</b> {t212_ticker} @ ${last_price:.4f}\n"
+                                f"SL: {stop_price:.5f} ({sl_pct:.2f}%)\n"
+                                f"TP: {limit_price:.5f} ({tp_pct:.2f}%)\n"
+                                f"R:R: {rr_actual:.1f} | {asset_class}\n"
+                                f"Confluence: {confluence}/6"
+                            )
+
+                        self.last_trade_times[yf_ticker] = (time.time(), signal)
                         return True
 
                     try:
@@ -1271,6 +1494,9 @@ class TradingBot:
                             'confluence_score': result.get('confluence_score', 0),
                             'strategy': result.get('strategy', strategy_used),
                             'regime': regime,
+                            'asset_class': asset_class,
+                            'sl_distance_pct': result.get('sl_distance_pct', 0),
+                            'rr_ratio': result.get('rr_ratio', 0),
                         }
 
                         # 📲 TELEGRAM NOTIFICATION
@@ -1358,7 +1584,7 @@ class TradingBot:
                 # Retrieve indicator metadata stored at trade open
                 meta = getattr(self, '_trade_metadata', {}).get(epic, {})
 
-                # Record in learning engine (with indicator combo tracking)
+                # Record in learning engine (with indicator combo + asset class tracking)
                 self.learning_engine.record_trade(
                     ticker=epic,
                     pnl=float(pnl),
@@ -1367,6 +1593,7 @@ class TradingBot:
                     exit_price=float(trade.get('closeLevel', 0)),
                     exit_reason="TP" if float(pnl) > 0 else "SL",
                     indicators_used=meta.get('indicators_used', []),
+                    asset_class=meta.get('asset_class', self.detect_asset_class(epic)),
                 )
                 
                 self._recorded_trade_ids.add(trade_id)
@@ -1515,15 +1742,30 @@ class TradingBot:
 
     def scan_cycle(self):
         self.update_daily_pnl()
-        
+
         # Record closed trades for learning (every cycle)
         self.record_closed_trades()
-        
+
+        # === v3.2: AUTO-PAUSE CHECK ===
+        if getattr(self, '_auto_paused', False):
+            self.log(f"🛑 AUTO-PAUSED: {self._consecutive_losses} consecutive losses. Resume manually.")
+            return
+
+        # === v3.2: DRAWDOWN CHECK ===
+        dd_ok, dd_msg = self.check_drawdown_protection()
+        if not dd_ok:
+            self.log(f"🛑 {dd_msg}")
+            self.session_stopped_reason = "drawdown"
+            return
+
         if self.session_stopped_reason == "daily_loss":
             self.log(f"[SESSION] Daily loss limit reached (PnL: {getattr(self, 'daily_pnl', 0):.2f}). No new trades today.")
             return
         if self.session_stopped_reason == "profit_target":
             self.log(f"[SESSION] Daily profit target hit (PnL: {getattr(self, 'daily_pnl', 0):.2f}). No new trades.")
+            return
+        if self.session_stopped_reason == "drawdown":
+            self.log(f"[SESSION] Emergency drawdown stop active.")
             return
 
         if not self.open_instruments:
@@ -1535,12 +1777,14 @@ class TradingBot:
         subset = self.open_instruments
         if len(subset) > MAX_SCAN_PER_CYCLE:
              subset = random.sample(self.open_instruments, MAX_SCAN_PER_CYCLE)
-        self.log(f"Scanning {len(subset)} assets...")
+
+        risk_pct = self.get_current_risk_pct()
+        mode_str = "DRY-RUN" if self.dry_run else "LIVE"
+        self.log(f"Scanning {len(subset)} assets [{mode_str} | Risk: {risk_pct*100:.1f}% | Trade #{getattr(self, '_total_live_trades', 0)+1}]")
+
         for i, item in enumerate(subset):
             if not self.is_running:
                 break
-            # ticker = item.get('yf', item.get('epic', 'UNKNOWN'))
-            # self.log(f"[{i+1}/{len(subset)}] Processing {ticker}...")
             self.process_instrument(item)
             time.sleep(1)
 
@@ -1548,51 +1792,55 @@ class TradingBot:
 
     def monitor_positions(self):
         """
-        Check open positions and apply Trailing Stop + Partial Profit Taking.
-        
-        Logic:
-        - If Profit > 1.0R (risk distance): Take 50% profit (partial close)
-        - If Profit > 1.5R: Move SL to lock 0.5R
-        - If Profit > 2.0R: Move SL to lock 1.0R
+        v3.2: Advanced position management with tiered partials + adaptive trailing.
+
+        Partial Close Schedule:
+        - At 1.5R: Close 40% (lock quick profit)
+        - At 2.0R: Close 30% (secure more)
+        - Rest trails with Supertrend + ATR buffer
+
+        Trailing Stop:
+        - At 1.0R: Move SL to breakeven
+        - At 1.5R: Lock 0.5R profit
+        - At 2.0R: Lock 1.0R profit
+        - At 3.0R+: Lock 1.5R profit
         """
-        if self.broker != "capital": 
+        if self.broker != "capital":
             return
 
         try:
             positions = self.client.get_positions()
             if not positions: return
 
-            # Track which positions we've already taken partial on
-            if not hasattr(self, '_partial_taken'):
-                self._partial_taken = set()
+            # Track partial close stages per deal
+            if not hasattr(self, '_partial_stages'):
+                self._partial_stages = {}  # deal_id -> set of completed stages
 
             for pos in positions:
                 try:
-                    # Normalize position data (Capital.com struktura)
                     market = pos.get('market', {})
                     pos_data = pos.get('position', {})
-                    
+
                     epic = market.get('epic') or pos.get('epic')
                     direction = pos_data.get('direction') or pos.get('direction')
                     entry_level = pos_data.get('level') or pos.get('level')
                     current_sl = pos_data.get('stopLevel') or pos.get('stopLevel')
-                    current_tp = pos_data.get('profitLevel') or pos.get('profitLevel')
                     deal_id = pos_data.get('dealId') or pos.get('dealId')
                     current_size = pos_data.get('size') or pos.get('size', 0)
-                    
+
                     if not epic or not deal_id or not entry_level:
                         continue
-                    
+
                     # Fetch live price
                     price_info = self.client.get_prices(epic)
                     snapshot = price_info.get('snapshot', {})
                     bid = snapshot.get('bid')
                     offer = snapshot.get('offer')
-                    
+
                     if not bid or not offer: continue
-                    
+
                     current_price = bid if direction == "BUY" else offer
-                    
+
                     # Calculate Profit Distance
                     if direction == "BUY":
                         profit_dist = current_price - entry_level
@@ -1600,74 +1848,99 @@ class TradingBot:
                     else:
                         profit_dist = entry_level - current_price
                         risk_dist = current_sl - entry_level if current_sl else entry_level * 0.01
-                    
-                    # Risk distance = 1R
+
                     one_r = abs(risk_dist) if risk_dist > 0 else entry_level * 0.01
-                    
-                    # === PARTIAL PROFIT TAKING at 1R ===
-                    if profit_dist >= one_r and deal_id not in self._partial_taken:
-                        if current_size > 0:
-                            partial_size = round(current_size * 0.5, 2)  # 50% pozice
-                            if partial_size > 0:
-                                self.log(f"💰 PARTIAL PROFIT: {epic} @ 1R - zavírám 50% ({partial_size})")
-                                result = self.client.reduce_position(deal_id, partial_size)
-                                if result:
-                                    self._partial_taken.add(deal_id)
-                                    self.log(f"✅ Partial close successful")
-                                    
-                                    # Telegram notifikace
-                                    if hasattr(self, 'telegram') and self.telegram.enabled:
-                                        pnl_est = partial_size * profit_dist
-                                        self.telegram.notify_close(epic, pnl_est, "Partial @ 1R")
-                    
-                    # === RATCHET TRAILING STOP ===
+
+                    # Initialize partial stage tracker
+                    if deal_id not in self._partial_stages:
+                        self._partial_stages[deal_id] = set()
+                    stages_done = self._partial_stages[deal_id]
+
+                    # === TIERED PARTIAL CLOSES (v3.2) ===
+                    # Stage 1: At 1.5R -> Close 40%
+                    if profit_dist >= (one_r * 1.5) and 'P1' not in stages_done:
+                        partial_size = round(current_size * 0.40, 2)
+                        if partial_size > 0:
+                            self.log(f"💰 PARTIAL-1: {epic} @ 1.5R — closing 40% ({partial_size})")
+                            result = self.client.reduce_position(deal_id, partial_size)
+                            if result:
+                                stages_done.add('P1')
+                                if hasattr(self, 'telegram') and self.telegram.enabled:
+                                    pnl_est = partial_size * profit_dist
+                                    self.telegram.notify_close(epic, pnl_est, "Partial-1 @ 1.5R (40%)")
+
+                    # Stage 2: At 2.0R -> Close 30% of REMAINING
+                    elif profit_dist >= (one_r * 2.0) and 'P2' not in stages_done and 'P1' in stages_done:
+                        partial_size = round(current_size * 0.50, 2)  # 50% of remaining ≈ 30% original
+                        if partial_size > 0:
+                            self.log(f"💰 PARTIAL-2: {epic} @ 2.0R — closing 50% remaining ({partial_size})")
+                            result = self.client.reduce_position(deal_id, partial_size)
+                            if result:
+                                stages_done.add('P2')
+                                if hasattr(self, 'telegram') and self.telegram.enabled:
+                                    pnl_est = partial_size * profit_dist
+                                    self.telegram.notify_close(epic, pnl_est, "Partial-2 @ 2.0R")
+
+                    # === ADAPTIVE TRAILING STOP (v3.2) ===
                     new_sl = None
                     reason = ""
 
-                    def get_desired_sl(r_mult):
-                        """Vypočítej SL level pro zamknutí R násobku."""
-                        if direction == "BUY": 
+                    def get_lock_sl(r_mult):
+                        if direction == "BUY":
                             return entry_level + (one_r * r_mult)
-                        else: 
+                        else:
                             return entry_level - (one_r * r_mult)
 
-                    # Level 3: Profit > 2.0R -> Lock 1.0R
-                    if profit_dist > (one_r * 2.0):
-                        desired = get_desired_sl(1.0)
-                        if (direction == "BUY" and (current_sl is None or current_sl < desired)) or \
-                           (direction == "SELL" and (current_sl is None or current_sl > desired)):
+                    def sl_should_update(desired):
+                        if direction == "BUY":
+                            return current_sl is None or current_sl < desired
+                        else:
+                            return current_sl is None or current_sl > desired
+
+                    # Level 4: Profit > 3.0R -> Lock 1.5R
+                    if profit_dist > (one_r * 3.0):
+                        desired = get_lock_sl(1.5)
+                        if sl_should_update(desired):
                             new_sl = desired
-                            reason = "Ratchet L3: Lock 1.0R 🔒"
+                            reason = "Trail L4: Lock 1.5R"
+
+                    # Level 3: Profit > 2.0R -> Lock 1.0R
+                    elif profit_dist > (one_r * 2.0):
+                        desired = get_lock_sl(1.0)
+                        if sl_should_update(desired):
+                            new_sl = desired
+                            reason = "Trail L3: Lock 1.0R"
 
                     # Level 2: Profit > 1.5R -> Lock 0.5R
                     elif profit_dist > (one_r * 1.5):
-                        desired = get_desired_sl(0.5)
-                        if (direction == "BUY" and (current_sl is None or current_sl < desired)) or \
-                           (direction == "SELL" and (current_sl is None or current_sl > desired)):
+                        desired = get_lock_sl(0.5)
+                        if sl_should_update(desired):
                             new_sl = desired
-                            reason = "Ratchet L2: Lock 0.5R"
+                            reason = "Trail L2: Lock 0.5R"
 
-                    # Level 1: Profit > 1.0R -> Break Even
+                    # Level 1: Profit > 1.0R -> Breakeven
                     elif profit_dist > one_r:
                         desired = entry_level
-                        is_at_least_be = (direction == "BUY" and current_sl and current_sl >= entry_level) or \
-                                         (direction == "SELL" and current_sl and current_sl <= entry_level)
-                        if not is_at_least_be:
+                        if sl_should_update(desired):
                             new_sl = desired
-                            reason = "Ratchet L1: Break Even"
-                    
+                            reason = "Trail L1: Breakeven"
+
                     # Execute SL Update
                     if new_sl:
-                        self.log(f"🛡️ Trailing: {epic} -> {reason}")
+                        self.log(f"🛡️ {epic}: {reason} (SL -> {new_sl:.5f})")
                         success = self.client.update_position(deal_id, stop_level=new_sl)
-                        if success:
-                            self.log(f"✅ SL Updated to {new_sl:.5f}")
-                        else:
-                            self.log(f"❌ Failed to update SL")
+                        if not success:
+                            self.log(f"❌ Failed to update SL for {epic}")
 
-                except Exception as e:
-                    pass  # Silently ignore errors to not spam logs
-                    
+                except Exception:
+                    pass
+
+            # Clean up old deal IDs from partial tracker
+            active_deals = {(p.get('position', {}) or {}).get('dealId') for p in positions}
+            stale = [d for d in self._partial_stages if d not in active_deals]
+            for d in stale:
+                del self._partial_stages[d]
+
         except Exception:
             pass
             

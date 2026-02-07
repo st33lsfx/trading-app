@@ -125,7 +125,12 @@ class HybridStrategy:
         strategy, strategy_name = self.select_strategy(regime)
 
         # Get signal from selected strategy
-        signal_data = strategy.get_signal(df, config, major_trend)
+        # EliteStrategy and MeanReversionStrategy have different signatures
+        if strategy_name == 'MEAN_REVERSION':
+            signal_data = strategy.get_signal(df, config, major_trend)
+        else:
+            # EliteStrategy.get_signal(df, asset_class=None)
+            signal_data = strategy.get_signal(df)
 
         # Enhance result with regime info
         signal_data['regime'] = regime

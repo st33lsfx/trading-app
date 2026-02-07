@@ -33,8 +33,8 @@ class MeanReversionStrategy:
         self.rsi_overbought = self.config.get("rsi_overbought", 62)
 
         # === RISK MANAGEMENT ===
-        self.atr_sl_mult = self.config.get("atr_sl_mult", 2.0)  # Wider SL = méně SL hitů
-        self.min_rr_ratio = self.config.get("min_rr_ratio", 1.5)  # FIXED: Min R:R 1.5 pro ziskovost
+        self.atr_sl_mult = self.config.get("atr_sl_mult", 3.0)  # v3.1: wider SL (was 2.0)
+        self.min_rr_ratio = self.config.get("min_rr_ratio", 2.0)  # v3.1: R:R 2.0 minimum (was 1.5)
 
         # === FILTERS ===
         # Trend filter VYPNUT - mean reversion obchoduje proti krátkodobému trendu
@@ -244,10 +244,23 @@ class MeanReversionStrategy:
         bb_lower_with_tolerance = bb_lower * (1 + bb_tolerance)
         bb_upper_with_tolerance = bb_upper * (1 - bb_tolerance)
         
-        # === R:R GUARANTEED CALCULATION ===
-        # SL = ATR × 2.0, TP = ATR × 4.0 → R:R = 1:2
-        sl_distance = atr * self.atr_sl_mult  # Default 2.0
-        tp_distance = atr * 4.0  # Guarantee 1:2 R:R
+        # === R:R GUARANTEED CALCULATION (v3.1) ===
+        # SL = ATR × 3.0, TP = ATR × 6.0 → R:R = 1:2
+        sl_distance = atr * self.atr_sl_mult  # Default 3.0
+        tp_distance = sl_distance * self.min_rr_ratio  # Guarantee minimum R:R
+
+        # Enforce minimum SL distance (% of price)
+        # Prevents SL that's within normal noise
+        if current_price > 500:  # Crypto
+            min_sl = current_price * 0.015  # 1.5%
+        elif current_price < 10:  # Forex
+            min_sl = current_price * 0.004  # 0.4%
+        else:
+            min_sl = current_price * 0.008  # 0.8%
+
+        if sl_distance < min_sl:
+            sl_distance = min_sl
+            tp_distance = sl_distance * self.min_rr_ratio
 
         # BUY SIGNAL: Cena blízko spodní BB + RSI oversold + CONFIRMATION CANDLE
         # Confirmation: předchozí svíčka musí uzavřít VÝŠE než otevřela (zelená = obrat nahoru)

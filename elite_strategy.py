@@ -29,8 +29,39 @@ from ta.volume import VolumeWeightedAveragePrice
 
 class EliteStrategy:
     """
-    Elite Trading Strategy 3.0 (Volume Profile Centered)
+    Elite Trading Strategy 3.2 (Volume Profile Centered + Asset-Class Risk)
+
+    v3.2 Changes (Live Deploy):
+    - Crypto: ATR×5.0 SL / ATR×10.0 TP — wider to survive wicks
+    - Forex: ATR×2.5 SL / ATR×5.5 TP — slightly wider TP
+    - Crypto min SL raised to 2.0% (was 1.5%)
+    - Adaptive trailing + partial close support
     """
+
+    # === ASSET CLASS RISK PROFILES (v3.2 - Optimized for Higher PF) ===
+    RISK_PROFILES = {
+        "crypto": {
+            "atr_sl_mult": 5.0,       # v3.2: Wider SL (was 4.0) — survives crypto wicks
+            "atr_tp_mult": 10.0,      # v3.2: TP at 10× ATR (was 8.0) — lets winners run
+            "min_sl_pct": 0.02,       # v3.2: Min 2.0% SL (was 1.5%) — crypto needs room
+            "max_sl_pct": 0.06,       # Maximum 6% SL distance
+            "min_rr": 2.0,            # Minimum R:R
+        },
+        "forex": {
+            "atr_sl_mult": 2.5,       # Moderate SL for forex
+            "atr_tp_mult": 5.5,       # v3.2: TP at 5.5× ATR (was 5.0) — wider targets
+            "min_sl_pct": 0.004,      # Minimum 0.4% SL (≈40 pips on majors)
+            "max_sl_pct": 0.025,      # Maximum 2.5%
+            "min_rr": 2.0,
+        },
+        "default": {
+            "atr_sl_mult": 3.0,
+            "atr_tp_mult": 6.0,
+            "min_sl_pct": 0.008,
+            "max_sl_pct": 0.04,
+            "min_rr": 2.0,
+        }
+    }
 
     def __init__(self, config=None):
         self.config = config or {}
@@ -51,7 +82,7 @@ class EliteStrategy:
         self.macd_fast = 12
         self.macd_slow = 26
         self.macd_sign = 9
-        
+
         # === 4. EXITS ===
         self.psar_step = 0.02
         self.psar_max = 0.2
@@ -59,8 +90,8 @@ class EliteStrategy:
         # === RISK MANAGEMENT ===
         self.min_rr_ratio = self.config.get('min_rr_ratio', 2.0)
         self.min_confluence = self.config.get('min_confluence', 4)  # VP + 3 others
-        self.atr_sl_mult = self.config.get('atr_sl_mult', 2.0)
-        
+        self.atr_sl_mult = self.config.get('atr_sl_mult', 2.0)  # Base fallback (overridden by asset class)
+
         # Internal state
         self._has_real_vwap = False
 
@@ -347,129 +378,218 @@ class EliteStrategy:
     # CORE SIGNAL LOGIC
     # =========================================================
 
-    def get_signal(self, df):
+    def _get_risk_profile(self, asset_class):
+        """Get risk profile for asset class."""
+        return self.RISK_PROFILES.get(asset_class, self.RISK_PROFILES["default"])
+
+    def _detect_asset_class_from_data(self, df):
+        """Fallback asset class detection from price characteristics."""
+        close = df['Close'].iloc[-1]
+        if close > 500:  # Crypto (BTC, ETH) or expensive stock
+            return "crypto"
+        elif close < 10:  # Forex pairs (0.6 - 1.5 range mostly)
+            return "forex"
+        return "default"
+
+    def get_signal(self, df, asset_class=None):
         if len(df) < 60:
             return {"signal": "NEUTRAL", "confidence": 0, "reason": "Init..."}
 
         # Optimization: Skip indicator recalc if already present
         if 'hma_fast' not in df.columns:
             df = self.add_indicators(df)
-            
+
         row = df.iloc[-1]
         close = row['Close']
         adx = row['adx']
-        
+        atr = row['atr']
+
+        # Auto-detect asset class if not provided
+        if not asset_class:
+            asset_class = self._detect_asset_class_from_data(df)
+
+        risk = self._get_risk_profile(asset_class)
+
         # 1. DETERMINE REGIME
         regime = "TREND" if adx > self.adx_min else "RANGE"
-        
+
         # 2. CALCULATE VP
         vp = self._calculate_volume_profile(df)
         if not vp:
             return {"signal": "NEUTRAL", "reason": "No Volume Data"}
-            
+
         poc, vah, val = vp['poc'], vp['vah'], vp['val']
-        
+
         # 3. IDENTIFY SIGNAL CANDIDATE (VP Centered)
         signal_candidate = "NEUTRAL"
         vp_reason = ""
-        
+
         # === TREND LOGIC (Breakouts & Pullbacks) ===
         if regime == "TREND":
-            # BUY: Price breaks above VAH OR Price is above POC (Trend Continuing)
             if close > vah:
                 signal_candidate = "BUY"
                 vp_reason = "VP: Breakout > VAH"
             elif close > poc and row['st_direction'] == 1:
-                signal_candidate = "BUY" # Trend Pullback Safe zone
+                signal_candidate = "BUY"
                 vp_reason = "VP: Trend > POC"
-            # SELL
             elif close < val:
                 signal_candidate = "SELL"
                 vp_reason = "VP: Breakout < VAL"
             elif close < poc and row['st_direction'] == -1:
                 signal_candidate = "SELL"
                 vp_reason = "VP: Trend < POC"
-                
+
         # === RANGE LOGIC (Reversals at Value Area Edges) ===
         else:
-            # BUY: Price touched VAL and is bouncing up
-            # Check deviation recent low vs VAL
             dist_to_val = abs(close - val) / close
-            if close > val and dist_to_val < 0.005: # Near VAL
+            if close > val and dist_to_val < 0.005:
                 signal_candidate = "BUY"
                 vp_reason = "VP: Range Reversal @ VAL"
-                
-            # SELL: Price touched VAH and is bouncing down
+
             dist_to_vah = abs(close - vah) / close
-            if close < vah and dist_to_vah < 0.005: # Near VAH
+            if close < vah and dist_to_vah < 0.005:
                 signal_candidate = "SELL"
                 vp_reason = "VP: Range Reversal @ VAH"
 
         if signal_candidate == "NEUTRAL":
-            return {"signal": "NEUTRAL", "confidence": 0, "reason": f"{regime}: No VP Trigger", "adx": adx}
+            return {"signal": "NEUTRAL", "confidence": 0, "reason": f"{regime}: No VP Trigger", "adx": adx, "rsi": row.get('rsi', 50)}
 
         # 4. STRICT CONFLUENCE CHECK
         score, max_s, tools, details = self._score_confluence(row, signal_candidate, regime)
-        
-        # Ensure VP is counted in "tools" for reporting
+
         tools.append("VolProfile")
-        
-        # Required: 4/7 or similar. Since VP is implicitly 1, we need 3 from score.
-        # score counts non-VP indicators.
-        req_score = 3 
-        
+
+        req_score = 3
+
         if score < req_score:
              return {
                 "signal": "NEUTRAL",
                 "confidence": 0,
                 "reason": f"Low Confluence ({score}/{max_s} extra)",
                 "filters": details,
-                "vp_context": vp_reason
+                "vp_context": vp_reason,
+                "rsi": row.get('rsi', 50),
             }
 
         # 5. CONFIRMATION CANDLE check
         is_bullish = close > df.iloc[-1]['Open']
         if signal_candidate == "BUY" and not is_bullish:
-             return {"signal": "NEUTRAL", "reason": "Wait for Green Candle"}
+             return {"signal": "NEUTRAL", "reason": "Wait for Green Candle", "rsi": row.get('rsi', 50)}
         if signal_candidate == "SELL" and is_bullish:
-             return {"signal": "NEUTRAL", "reason": "Wait for Red Candle"}
+             return {"signal": "NEUTRAL", "reason": "Wait for Red Candle", "rsi": row.get('rsi', 50)}
 
-        # 6. TARGETING & SL
-        atr = row['atr']
+        # =========================================================
+        # 6. ASSET-CLASS-AWARE SL/TP CALCULATION (v3.1 FIX)
+        # =========================================================
+        atr_sl_mult = risk["atr_sl_mult"]
+        atr_tp_mult = risk["atr_tp_mult"]
+        min_sl_pct = risk["min_sl_pct"]
+        max_sl_pct = risk["max_sl_pct"]
+        min_rr = risk["min_rr"]
+
         lv_target = self._find_targets_using_vp(close, signal_candidate, vp)
-        
-        # SL Setup
+
         if signal_candidate == "BUY":
-            # SL below Supertrend or POC
-            sl_level = max(row['supertrend'], val if regime == "TREND" else (val - atr))
-            dist = close - sl_level
-            # Min Risk
-            if dist < atr: sl_level = close - (atr * 1.5)
-            
-            # TP Setup
+            # --- SL CALCULATION ---
+            # Start from structural level (Supertrend / VP boundary)
+            structural_sl = max(row['supertrend'], val if regime == "TREND" else (val - atr))
+            structural_dist = close - structural_sl
+
+            # ATR-based SL (the MINIMUM width)
+            atr_sl_dist = atr * atr_sl_mult
+
+            # Use the WIDER of structural or ATR-based
+            sl_dist = max(structural_dist, atr_sl_dist)
+
+            # Enforce absolute minimum SL distance (% of price)
+            min_abs_dist = close * min_sl_pct
+            if sl_dist < min_abs_dist:
+                sl_dist = min_abs_dist
+
+            # Enforce maximum SL distance (% of price)
+            max_abs_dist = close * max_sl_pct
+            if sl_dist > max_abs_dist:
+                sl_dist = max_abs_dist
+
+            sl_level = close - sl_dist
+
+            # VP Protection: SL must be OUTSIDE Value Area (below VAL)
+            if sl_level > val and regime == "RANGE":
+                sl_level = val - (atr * 0.5)
+                sl_dist = close - sl_level
+
+            # --- TP CALCULATION ---
+            atr_tp_dist = atr * atr_tp_mult
+
             if lv_target and lv_target > close:
-                tp_level = lv_target
+                tp_dist = lv_target - close
+                # Ensure LVN target meets minimum R:R
+                if tp_dist < sl_dist * min_rr:
+                    tp_dist = sl_dist * min_rr
             else:
-                tp_level = close + (dist * self.min_rr_ratio)
-                
-        else: # SELL
-            sl_level = min(row['supertrend'], vah if regime == "TREND" else (vah + atr))
-            dist = sl_level - close
-            if dist < atr: sl_level = close + (atr * 1.5)
-            
+                tp_dist = max(atr_tp_dist, sl_dist * min_rr)
+
+            tp_level = close + tp_dist
+
+        else:  # SELL
+            # --- SL CALCULATION ---
+            structural_sl = min(row['supertrend'], vah if regime == "TREND" else (vah + atr))
+            structural_dist = structural_sl - close
+
+            atr_sl_dist = atr * atr_sl_mult
+            sl_dist = max(structural_dist, atr_sl_dist)
+
+            min_abs_dist = close * min_sl_pct
+            if sl_dist < min_abs_dist:
+                sl_dist = min_abs_dist
+
+            max_abs_dist = close * max_sl_pct
+            if sl_dist > max_abs_dist:
+                sl_dist = max_abs_dist
+
+            sl_level = close + sl_dist
+
+            # VP Protection: SL must be OUTSIDE Value Area (above VAH)
+            if sl_level < vah and regime == "RANGE":
+                sl_level = vah + (atr * 0.5)
+                sl_dist = sl_level - close
+
+            # --- TP CALCULATION ---
+            atr_tp_dist = atr * atr_tp_mult
+
             if lv_target and lv_target < close:
-                tp_level = lv_target
+                tp_dist = close - lv_target
+                if tp_dist < sl_dist * min_rr:
+                    tp_dist = sl_dist * min_rr
             else:
-                tp_level = close - (dist * self.min_rr_ratio)
+                tp_dist = max(atr_tp_dist, sl_dist * min_rr)
+
+            tp_level = close - tp_dist
+
+        # Final R:R verification
+        final_rr = tp_dist / sl_dist if sl_dist > 0 else 0
+        if final_rr < min_rr:
+            tp_dist = sl_dist * min_rr
+            if signal_candidate == "BUY":
+                tp_level = close + tp_dist
+            else:
+                tp_level = close - tp_dist
+            final_rr = min_rr
 
         return {
             "signal": signal_candidate,
             "confidence": 0.8 + (score/10.0),
-            "sl": round(sl_level, 4),
-            "tp": round(tp_level, 4),
+            "sl": round(sl_level, 5),
+            "tp": round(tp_level, 5),
             "adx": adx,
-            "reason": f"{vp_reason} + {score} Confluence",
+            "rsi": row.get('rsi', 50),
+            "reason": f"{vp_reason} + {score} Confluence [{asset_class} ATR×{atr_sl_mult}]",
             "filters": details,
             "indicators_used": tools,
-            "strategy": f"ELITE_VP_{regime}"
+            "strategy": f"ELITE_VP_{regime}",
+            "asset_class": asset_class,
+            "sl_distance_pct": round(sl_dist / close * 100, 3),
+            "tp_distance_pct": round(tp_dist / close * 100, 3),
+            "rr_ratio": round(final_rr, 2),
+            "confluence_score": score,
         }

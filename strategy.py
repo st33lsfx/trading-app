@@ -342,37 +342,36 @@ class Strategy:
         return {"action": "NEUTRAL", "reason": f"Waiting ({trend_status})", "rsi": rsi}
 
     def _calculate_sl_tp(self, close, atr_val, atr_mult, max_risk_pct, risk_reward, direction, last):
-        """Calculate Stop Loss and Take Profit levels.
-        
-        For Forex (price ~1.0-150): min 0.5% SL = 50+ pips
-        For Crypto/Stocks: min 0.8% SL
+        """Calculate Stop Loss and Take Profit levels (v3.1).
+
+        Asset-class-aware minimum SL distances:
+        - Forex (price ~1.0-150): min 0.4% SL = ~40+ pips
+        - Crypto (price >500): min 1.5% SL
+        - Other: min 0.8% SL
         """
 
         if pd.notna(atr_val) and atr_val > 0:
             sl_distance = atr_val * atr_mult
 
-            # Cap risk at max_risk_pct
-            max_sl_distance = close * max_risk_pct
-            if sl_distance > max_sl_distance:
-                sl_distance = max_sl_distance
-
-            # Minimum SL based on asset type
-            # Forex pairs (price 0.5-2.0): min 0.5% = ~50-80 pips
-            # JPY pairs (price 100-150): min 0.3% = ~30-50 pips  
-            # Crypto/Stocks: min 0.8%
-            if close < 3:  # Forex (EURUSD ~1.08, AUDNZD ~1.16)
-                min_risk = 0.005  # 0.5% = ~50+ pips
+            # Minimum SL based on asset type (v3.1: wider for crypto)
+            if close > 500:  # Crypto (BTC, ETH, SOL)
+                min_risk = 0.015   # 1.5% — crypto noise needs wide SL
+                max_risk = 0.06    # 6% max
+            elif close < 3:  # Forex (EURUSD ~1.08)
+                min_risk = 0.004   # 0.4% = ~40+ pips
+                max_risk = 0.025   # 2.5% max
             elif close < 200:  # JPY pairs, cheap stocks
-                min_risk = 0.004  # 0.4%
-            else:  # Crypto, expensive stocks
-                min_risk = 0.008  # 0.8%
-            
+                min_risk = 0.005   # 0.5%
+                max_risk = 0.03    # 3% max
+            else:  # Stocks
+                min_risk = 0.008   # 0.8%
+                max_risk = 0.04    # 4% max
+
             if sl_distance / close < min_risk:
                 sl_distance = close * min_risk
-                
-            # Ceiling: max 2% risk
-            if sl_distance / close > 0.02:
-                sl_distance = close * 0.02
+
+            if sl_distance / close > max_risk:
+                sl_distance = close * max_risk
         else:
             sl_distance = close * 0.008  # Default 0.8%
 

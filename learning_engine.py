@@ -73,10 +73,35 @@ class LearningEngine:
         self.learned_params = {
             "rsi_oversold": 38,
             "rsi_overbought": 62,
-            "atr_sl_mult": 2.0,
+            "atr_sl_mult": 3.0,
             "min_confidence": 0.55,
             "enable_shorts": True,
             "min_rr_ratio": 2.0,  # 2026 guide: R:R 2.0 minimum
+        }
+
+        # Per-asset-class learned params (v2.2)
+        self.asset_class_params = {
+            "crypto": {
+                "atr_sl_mult": 4.0,
+                "min_rr_ratio": 2.0,
+                "min_confidence": 0.55,
+                "enable_shorts": True,
+                "trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0,
+            },
+            "forex": {
+                "atr_sl_mult": 2.5,
+                "min_rr_ratio": 2.0,
+                "min_confidence": 0.55,
+                "enable_shorts": True,
+                "trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0,
+            },
+            "default": {
+                "atr_sl_mult": 3.0,
+                "min_rr_ratio": 2.0,
+                "min_confidence": 0.55,
+                "enable_shorts": True,
+                "trades": 0, "wins": 0, "losses": 0, "total_pnl": 0.0,
+            },
         }
         
         # Auto-blacklist thresholds
@@ -163,6 +188,11 @@ class LearningEngine:
             self.ticker_stats[ticker].update(stats)
 
         self.learned_params.update(data.get("learned_params", {}))
+        # Load per-asset-class params (v2.2)
+        saved_ac = data.get("asset_class_params", {})
+        for ac_name, ac_data in saved_ac.items():
+            if ac_name in self.asset_class_params:
+                self.asset_class_params[ac_name].update(ac_data)
         self.direction_stats.update(data.get("direction_stats", {}))
         self.activity_log = data.get("activity_log", [])[-300:]
 
@@ -176,6 +206,7 @@ class LearningEngine:
             "version": self.VERSION,
             "ticker_stats": dict(self.ticker_stats),
             "learned_params": self.learned_params,
+            "asset_class_params": self.asset_class_params,
             "direction_stats": self.direction_stats,
             "indicator_combos": dict(self.indicator_combos),
             "activity_log": self.activity_log[-300:],
@@ -200,13 +231,35 @@ class LearningEngine:
             except Exception as e:
                 print(f"⚠️ Supabase save error: {e}")
     
+    def _detect_asset_class(self, ticker: str) -> str:
+        """Detect asset class from ticker name."""
+        ticker_upper = ticker.upper()
+        crypto_tokens = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOT",
+                         "DOGE", "AVAX", "LINK", "MATIC", "LTC", "UNI", "ATOM"]
+        for token in crypto_tokens:
+            if token in ticker_upper:
+                return "crypto"
+        forex_ccy = ["EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]
+        if len(ticker_upper) == 6 and any(c in ticker_upper for c in forex_ccy):
+            return "forex"
+        if "=X" in ticker_upper:
+            return "forex"
+        if "-USD" in ticker_upper:
+            return "crypto"
+        return "default"
+
+    def get_asset_class_params(self, asset_class: str) -> dict:
+        """Get learned params for a specific asset class."""
+        return self.asset_class_params.get(asset_class, self.asset_class_params["default"]).copy()
+
     def record_trade(self, ticker: str, pnl: float, direction: str,
                      entry_price: float, exit_price: float, exit_reason: str,
                      target_rr: float = None, achieved_rr: float = None,
-                     volatility_atr: float = None, indicators_used: list = None):
+                     volatility_atr: float = None, indicators_used: list = None,
+                     asset_class: str = None):
         """
         Record a completed trade for learning.
-        
+
         Args:
             ticker: Trading instrument (e.g., "GBPUSD")
             pnl: Profit/loss in account currency
@@ -217,6 +270,7 @@ class LearningEngine:
             target_rr: Target R:R at entry (optional)
             achieved_rr: Actual R:R achieved (optional)
             volatility_atr: ATR at entry (optional)
+            asset_class: "crypto", "forex", or "default" (optional, auto-detected)
         """
         stats = self.ticker_stats[ticker]
         
@@ -287,6 +341,18 @@ class LearningEngine:
         if len(stats["trade_history"]) > 100:
             stats["trade_history"] = stats["trade_history"][-100:]
         
+        # Track per-asset-class performance (v2.2)
+        if not asset_class:
+            asset_class = self._detect_asset_class(ticker)
+        if asset_class in self.asset_class_params:
+            ac = self.asset_class_params[asset_class]
+            ac["trades"] = ac.get("trades", 0) + 1
+            ac["total_pnl"] = ac.get("total_pnl", 0.0) + pnl
+            if pnl > 0:
+                ac["wins"] = ac.get("wins", 0) + 1
+            else:
+                ac["losses"] = ac.get("losses", 0) + 1
+
         # Track indicator combo performance (v2.1)
         if indicators_used:
             combo_key = "+".join(sorted(indicators_used))
@@ -546,6 +612,19 @@ class LearningEngine:
             all_rr.extend(stats.get("rr_history", []))
         avg_rr = sum(all_rr) / len(all_rr) if all_rr else 0.0
         
+        # Per-asset-class summary
+        ac_summary = {}
+        for ac_name, ac_data in self.asset_class_params.items():
+            ac_trades = ac_data.get("trades", 0)
+            if ac_trades > 0:
+                ac_wr = (ac_data.get("wins", 0) / ac_trades) * 100
+                ac_summary[ac_name] = {
+                    "trades": ac_trades,
+                    "win_rate": round(ac_wr, 1),
+                    "total_pnl": round(ac_data.get("total_pnl", 0), 2),
+                    "atr_sl_mult": ac_data.get("atr_sl_mult", 0),
+                }
+
         return {
             "total_tickers_tracked": len(self.ticker_stats),
             "total_trades": total_trades,
@@ -556,6 +635,7 @@ class LearningEngine:
             "long_stats": long_stats,
             "short_stats": short_stats,
             "learned_params": self.learned_params,
+            "asset_class_stats": ac_summary,
             "avg_rr_achieved": round(avg_rr, 2),
             "best_indicator_combos": self.get_best_indicator_combos(3),
             "version": self.VERSION,

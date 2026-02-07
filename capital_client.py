@@ -166,14 +166,33 @@ class CapitalClient:
         except:
             return True  # Can't determine, let it try
 
+    def _detect_asset_class(self, epic):
+        """Detect asset class from epic name for SL/TP validation."""
+        epic_upper = epic.upper()
+        crypto_tokens = ["BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "DOT",
+                         "DOGE", "AVAX", "LINK", "MATIC", "LTC", "UNI", "ATOM"]
+        for token in crypto_tokens:
+            if token in epic_upper:
+                return "crypto"
+        # Forex: 6-letter pairs like EURUSD, GBPJPY
+        forex_ccy = ["EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "USD"]
+        if len(epic_upper) == 6 and any(c in epic_upper for c in forex_ccy):
+            return "forex"
+        return "default"
+
     def place_market_order(self, epic, size, direction="BUY", stop_loss=None, take_profit=None, trailing_stop=False):
         """Place a market order (deal) with optional SL/TP.
-        
+
         Capital.com API accepts either:
         - stopLevel/profitLevel: absolute price levels
         - stopDistance/profitDistance: distance in points from entry
-        
+
         We use absolute levels (stopLevel, profitLevel).
+
+        v3.1: Asset-class-aware minimum SL distances:
+        - Crypto: min 1.5% SL (survives noise)
+        - Forex: min 0.4% SL (~40+ pips on majors)
+        - Default: min 0.8% SL
         """
         endpoint = f"{self.base_url}/api/v1/positions"
         data = {
@@ -184,6 +203,15 @@ class CapitalClient:
             "trailingStop": trailing_stop
         }
 
+        # Asset-class-aware minimum SL/TP distances
+        asset_class = self._detect_asset_class(epic)
+        MIN_SL_PCT = {
+            "crypto": 0.015,   # 1.5% — crypto noise is extreme
+            "forex": 0.004,    # 0.4% — ~40 pips on majors
+            "default": 0.008,  # 0.8% — stocks/commodities
+        }
+        MIN_RR = 2.0  # Enforce 2.0 R:R minimum for positive expectancy
+
         # Get current price to validate SL/TP direction
         try:
             prices = self.get_prices(epic)
@@ -191,47 +219,47 @@ class CapitalClient:
             current_bid = snapshot.get('bid', 0)
             current_offer = snapshot.get('offer', 0)
             entry_price = current_offer if direction == "BUY" else current_bid
-            
+
             # R:R Logic Variables
             actual_sl_distance = 0
-            
+
             if stop_loss and entry_price > 0:
-                # Validate SL Logic
-                min_sl_distance = entry_price * 0.005
+                # Minimum SL distance based on asset class
+                min_sl_distance = entry_price * MIN_SL_PCT.get(asset_class, 0.008)
                 target_sl = stop_loss
-                
+
                 # Direction Check
                 if direction == "BUY":
-                    if target_sl >= entry_price: target_sl = entry_price * 0.995
-                else: 
-                     if target_sl <= entry_price: target_sl = entry_price * 1.005
-                
+                    if target_sl >= entry_price: target_sl = entry_price - min_sl_distance
+                else:
+                     if target_sl <= entry_price: target_sl = entry_price + min_sl_distance
+
                 # Minimum Distance Check
                 current_dist = abs(entry_price - target_sl)
                 if current_dist < min_sl_distance:
-                    print(f"⚠️ SL too tight ({current_dist:.4f}), widening to {min_sl_distance:.4f}")
+                    print(f"⚠️ SL too tight for {asset_class} ({current_dist:.5f}), widening to {min_sl_distance:.5f}")
                     current_dist = min_sl_distance
                     if direction == "BUY": target_sl = entry_price - min_sl_distance
                     else: target_sl = entry_price + min_sl_distance
-                
+
                 stop_loss = target_sl
                 actual_sl_distance = current_dist
                 data["stopLevel"] = round(stop_loss, 5)
 
             if take_profit and entry_price > 0 and actual_sl_distance > 0:
-                # Calculate required TP based on Actual SL
-                min_tp_distance = actual_sl_distance * 1.5
+                # Calculate required TP based on Actual SL and MIN R:R
+                min_tp_distance = actual_sl_distance * MIN_RR
                 current_tp_dist = abs(entry_price - take_profit)
-                
+
                 if current_tp_dist < min_tp_distance:
-                    print(f"⚠️ TP too close ({current_tp_dist:.4f}), pushing to {min_tp_distance:.4f} (R:R 1.5)")
+                    print(f"⚠️ TP too close ({current_tp_dist:.5f}), pushing to {min_tp_distance:.5f} (R:R {MIN_RR})")
                     if direction == "BUY":
                         take_profit = entry_price + min_tp_distance
                     else:
                         take_profit = entry_price - min_tp_distance
-                
+
                 data["profitLevel"] = round(take_profit, 5)
-                
+
         except Exception as e:
             # If price fetch fails, still try to place order with given levels
             if stop_loss:
