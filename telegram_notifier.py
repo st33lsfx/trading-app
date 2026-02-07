@@ -112,6 +112,49 @@ class TelegramNotifier:
 """
         return self.send_message(message)
 
+    def notify_drawdown_alert(self, drawdown_pct, balance, initial_balance, threshold):
+        """v3.3: Send drawdown warning alert."""
+        message = f"""
+⚠️ <b>DRAWDOWN ALERT</b>
+
+📉 <b>Drawdown:</b> <code>-{drawdown_pct:.1f}%</code>
+💰 <b>Balance:</b> {balance:.0f} CZK
+📊 <b>Initial:</b> {initial_balance:.0f} CZK
+🎯 <b>Threshold:</b> {threshold:.0f}%
+
+<i>Bot continues trading. Monitor closely.</i>
+<i>⏱️ {datetime.now().strftime('%H:%M:%S')}</i>
+"""
+        return self.send_message(message)
+
+    def notify_emergency_stop(self, drawdown_pct, balance):
+        """v3.3: Send emergency stop alert."""
+        message = f"""
+🚨 <b>EMERGENCY STOP</b>
+
+📉 <b>Drawdown:</b> <code>-{drawdown_pct:.1f}%</code>
+💰 <b>Balance:</b> {balance:.0f} CZK
+🛑 <b>All trading stopped!</b>
+
+Manual intervention required to resume.
+<i>⏱️ {datetime.now().strftime('%H:%M:%S')}</i>
+"""
+        return self.send_message(message)
+
+    def notify_auto_pause(self, consecutive_losses, wins, losses):
+        """v3.3: Send auto-pause notification."""
+        message = f"""
+🛑 <b>AUTO-PAUSE</b>
+
+{consecutive_losses} consecutive losses detected.
+Trading paused until manual resume.
+
+📊 <b>Session:</b> {wins}W / {losses}L
+
+<i>⏱️ {datetime.now().strftime('%H:%M:%S')}</i>
+"""
+        return self.send_message(message)
+
 
 # Singleton instance
 _notifier = None

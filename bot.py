@@ -18,12 +18,12 @@ from economic_data import get_economic_calendar
 load_dotenv()
 
 # =====================================================
-# LIVE DEPLOYMENT CONFIGURATION (v3.2 - FINAL LIVE DEPLOY)
+# LIVE DEPLOYMENT CONFIGURATION (v3.3 - FINAL LIVE DEPLOY)
 # =====================================================
 # BEZPEČNOSTNÍ NASTAVENÍ PRO MALÝ ÚČET (2000-3000 Kč)
 
 # MODE TOGGLE
-DRY_RUN = True   # v3.2: START IN DRY-RUN — verify signals first, then set False
+DRY_RUN = True   # v3.3: START IN DRY-RUN — verify signals first, then set False
 
 # API MODE - "demo" nebo "live"
 CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
@@ -32,25 +32,29 @@ CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 3          # v3.2: Sníženo z 4 na 3 pro bezpečnost
+    MAX_POSITIONS = 3          # v3.3: Sníženo z 4 na 3 pro bezpečnost
     TRADE_AMOUNT_CZK = 200     # ~$7 per trade
-    MAX_RISK_PCT = 0.002       # v3.2: START at 0.2% (ramps up after 20 trades)
+    MAX_RISK_PCT = 0.002       # v3.3: START at 0.2% (ramps up after 20 trades)
 else:
     MAX_POSITIONS = 5          # Normal mode
     TRADE_AMOUNT_CZK = 200     # ~$8 per trade
     MAX_RISK_PCT = 0.005       # 0.5% risk
 
-# === RISK RAMP-UP SCHEDULE (v3.2) ===
+# === RISK RAMP-UP SCHEDULE (v3.3) ===
 RISK_RAMP_SCHEDULE = {
     0: 0.002,    # Trades 1-20: 0.2% risk (ultra-safe validation)
     20: 0.003,   # Trades 21-50: 0.3% risk (building confidence)
     50: 0.005,   # Trades 51+: 0.5% risk (full operational)
 }
 
-# === SAFETY LIMITS (v3.2) ===
+# === SAFETY LIMITS (v3.3) ===
 MAX_CONSECUTIVE_LOSSES = 3     # Auto-pause after 3 consecutive losses
 DRAWDOWN_ALERT_PCT = 3.0       # Telegram alert at 3% drawdown
 DRAWDOWN_EMERGENCY_PCT = 8.0   # Emergency stop at 8% drawdown
+
+# === MANUAL CONFIRMATION (v3.3) ===
+MANUAL_CONFIRM_FIRST_N = 10   # Require manual confirm for first N live trades
+MANUAL_CONFIRM_ENABLED = True  # Toggle via dashboard
 
 SL_PCT = 0.01              # Fallback
 TP_PCT = 0.02              # Fallback
@@ -237,10 +241,19 @@ class TradingBot:
         self.wins = 0
         self.losses = 0
 
-        # === v3.2: CONSECUTIVE LOSS TRACKER + AUTO-PAUSE ===
+        # === v3.3: CONSECUTIVE LOSS TRACKER + AUTO-PAUSE ===
         self._consecutive_losses = 0
         self._auto_paused = False
         self._total_live_trades = 0  # Counter for risk ramp-up
+
+        # === v3.3: MANUAL CONFIRMATION MODE ===
+        self.manual_confirm_enabled = MANUAL_CONFIRM_ENABLED
+        self.manual_confirm_first_n = MANUAL_CONFIRM_FIRST_N
+        self._pending_trades = []  # Trades awaiting manual confirmation
+        self._confirmed_trade_ids = set()
+
+        # === v3.3: EMERGENCY STOP ===
+        self._emergency_stopped = False
 
         # Compounding - zvyšuj trade_amount s profitem
         self.compound_profits = True
@@ -460,6 +473,121 @@ class TradingBot:
         risk_pct = self.get_current_risk_pct()
         self.log(f"📊 Trade #{self._total_live_trades}: {'WIN' if is_win else 'LOSS'} | "
                  f"Streak: {self._consecutive_losses}L | Risk: {risk_pct*100:.1f}%")
+
+    def emergency_stop(self):
+        """v3.3: Emergency stop — close all positions and halt trading."""
+        self._emergency_stopped = True
+        self.is_running = False
+        self.log("🚨 EMERGENCY STOP ACTIVATED — all trading halted!")
+
+        # Send Telegram alert
+        if hasattr(self, 'telegram') and self.telegram.enabled:
+            self.telegram.send_message(
+                "🚨 <b>EMERGENCY STOP</b>\n\n"
+                "All trading has been halted.\n"
+                "Manual intervention required to resume."
+            )
+
+        # Attempt to close all open positions
+        try:
+            positions = self.client.get_positions()
+            for pos in (positions or []):
+                try:
+                    pos_data = pos.get('position', {})
+                    deal_id = pos_data.get('dealId')
+                    size = pos_data.get('size', 0)
+                    if deal_id and size:
+                        self.client.reduce_position(deal_id, abs(size))
+                        self.log(f"🚨 Closed position: {pos.get('market', {}).get('epic', deal_id)}")
+                except Exception as e:
+                    self.log(f"⚠️ Failed to close position: {e}")
+        except Exception as e:
+            self.log(f"⚠️ Error closing positions: {e}")
+
+    def resume_from_emergency(self):
+        """v3.3: Resume trading after emergency stop."""
+        self._emergency_stopped = False
+        self._auto_paused = False
+        self._consecutive_losses = 0
+        self.session_stopped_reason = None
+        self._drawdown_alerted = False
+        self.log("✅ Emergency stop cleared. Bot can be restarted.")
+
+    def needs_manual_confirm(self):
+        """v3.3: Check if current trade needs manual confirmation."""
+        if not self.manual_confirm_enabled:
+            return False
+        if self.dry_run:
+            return False
+        return self._total_live_trades < self.manual_confirm_first_n
+
+    def add_pending_trade(self, trade_data):
+        """v3.3: Add trade to pending confirmation queue."""
+        trade_data['pending_id'] = f"T{self._total_live_trades + 1}_{int(time.time())}"
+        trade_data['timestamp'] = time.strftime('%H:%M:%S')
+        self._pending_trades.append(trade_data)
+        # Keep only last 20 pending
+        if len(self._pending_trades) > 20:
+            self._pending_trades = self._pending_trades[-20:]
+        self.log(f"⏳ MANUAL CONFIRM REQUIRED: {trade_data.get('signal')} {trade_data.get('epic')} — approve in dashboard")
+        if hasattr(self, 'telegram') and self.telegram.enabled:
+            self.telegram.send_message(
+                f"⏳ <b>MANUAL CONFIRM NEEDED</b>\n\n"
+                f"<b>{trade_data.get('signal')}</b> {trade_data.get('epic')}\n"
+                f"Price: ${trade_data.get('price', 0):.4f}\n"
+                f"SL: {trade_data.get('sl', 0):.5f} ({trade_data.get('sl_pct', 0):.2f}%)\n"
+                f"TP: {trade_data.get('tp', 0):.5f} ({trade_data.get('tp_pct', 0):.2f}%)\n"
+                f"R:R: {trade_data.get('rr', 0):.1f}\n\n"
+                f"Approve in dashboard (Trade #{self._total_live_trades + 1}/{self.manual_confirm_first_n})"
+            )
+
+    def confirm_pending_trade(self, pending_id):
+        """v3.3: Execute a pending trade after manual confirmation."""
+        trade = None
+        for t in self._pending_trades:
+            if t.get('pending_id') == pending_id:
+                trade = t
+                break
+
+        if not trade:
+            self.log(f"⚠️ Pending trade {pending_id} not found")
+            return False
+
+        self._pending_trades = [t for t in self._pending_trades if t.get('pending_id') != pending_id]
+        self._confirmed_trade_ids.add(pending_id)
+
+        # Execute the trade
+        try:
+            order_result = self.client.place_market_order(
+                trade['epic'],
+                trade['qty'],
+                direction=trade['signal'],
+                stop_loss=trade.get('sl'),
+                take_profit=trade.get('tp'),
+                trailing_stop=False
+            )
+            self.log(f"✅ CONFIRMED & EXECUTED: {trade['signal']} {trade['epic']} — {order_result.get('dealReference', 'OK')}")
+
+            if hasattr(self, 'telegram') and self.telegram.enabled:
+                self.telegram.notify_trade(
+                    direction=trade['signal'],
+                    ticker=trade['epic'],
+                    qty=trade['qty'],
+                    price=trade['price'],
+                    sl=trade.get('sl'),
+                    tp=trade.get('tp')
+                )
+
+            self.last_trade_times[trade.get('yf', trade['epic'])] = (time.time(), trade['signal'])
+            return True
+        except Exception as e:
+            self.log(f"❌ Confirmed trade failed: {e}")
+            return False
+
+    def reject_pending_trade(self, pending_id):
+        """v3.3: Reject a pending trade."""
+        self._pending_trades = [t for t in self._pending_trades if t.get('pending_id') != pending_id]
+        self.log(f"🚫 Trade {pending_id} rejected by user")
 
     def get_optimal_trade_size(self, epic, current_price):
         """Vypočítej optimální velikost pozice pro daný instrument."""
@@ -1448,17 +1576,24 @@ class TradingBot:
                     confluence = result.get('confluence_score', 0)
                     risk_pct_now = self.get_current_risk_pct()
 
+                    volatility = result.get('volatility_atr_pct', 0)
+                    regime_str = result.get('regime', regime)
+                    supertrend_trail = result.get('supertrend_trail', 0)
+
                     action_word = "Buying" if signal == "BUY" else "Shorting"
                     self.log(f"{'='*50}")
                     self.log(f"📊 TRADE #{getattr(self, '_total_live_trades', 0)+1} | {action_word} {qty} {t212_ticker} @ ${last_price:.4f}")
-                    self.log(f"   Asset: {asset_class} | Confidence: {confidence:.0%} | Confluence: {confluence}/6")
+                    self.log(f"   Asset: {asset_class} | Regime: {regime_str} | Confidence: {confidence:.0%} | Confluence: {confluence}/6")
                     self.log(f"   SL: {stop_price:.5f} ({sl_pct:.2f}%) | TP: {limit_price:.5f} ({tp_pct:.2f}%) | R:R {rr_actual:.1f}")
-                    self.log(f"   Risk: {risk_pct_now*100:.1f}% equity | Reason: {reason}")
+                    self.log(f"   Risk: {risk_pct_now*100:.1f}% equity | Volatility: {volatility:.2f}% ATR")
+                    self.log(f"   Reason: {reason}")
                     self.log(f"{'='*50}")
 
                     # === DRY-RUN MODE CHECK ===
                     if self.dry_run:
                         self.log(f"🔵 DRY-RUN: Trade NOT executed — dry_run mode active")
+                        volatility = result.get('volatility_atr_pct', 0)
+                        regime_str = result.get('regime', regime)
 
                         if hasattr(self, 'telegram') and self.telegram.enabled:
                             self.telegram.send_message(
@@ -1466,10 +1601,35 @@ class TradingBot:
                                 f"<b>{signal}</b> {t212_ticker} @ ${last_price:.4f}\n"
                                 f"SL: {stop_price:.5f} ({sl_pct:.2f}%)\n"
                                 f"TP: {limit_price:.5f} ({tp_pct:.2f}%)\n"
-                                f"R:R: {rr_actual:.1f} | {asset_class}\n"
-                                f"Confluence: {confluence}/6"
+                                f"R:R: {rr_actual:.1f} | {asset_class} | {regime_str}\n"
+                                f"Confluence: {confluence}/6\n"
+                                f"Volatility: {volatility:.2f}% ATR"
                             )
 
+                        self.last_trade_times[yf_ticker] = (time.time(), signal)
+                        return True
+
+                    # === v3.3: EMERGENCY STOP CHECK ===
+                    if getattr(self, '_emergency_stopped', False):
+                        self.log(f"🚨 EMERGENCY STOP active — trade blocked")
+                        return False
+
+                    # === v3.3: MANUAL CONFIRMATION CHECK ===
+                    if self.needs_manual_confirm():
+                        self.add_pending_trade({
+                            'epic': t212_ticker,
+                            'yf': yf_ticker,
+                            'signal': signal,
+                            'qty': qty,
+                            'price': last_price,
+                            'sl': stop_price,
+                            'tp': limit_price,
+                            'sl_pct': sl_pct,
+                            'tp_pct': tp_pct,
+                            'rr': rr_actual,
+                            'asset_class': asset_class,
+                            'confluence': confluence,
+                        })
                         self.last_trade_times[yf_ticker] = (time.time(), signal)
                         return True
 
@@ -1746,12 +1906,17 @@ class TradingBot:
         # Record closed trades for learning (every cycle)
         self.record_closed_trades()
 
-        # === v3.2: AUTO-PAUSE CHECK ===
+        # === v3.3: EMERGENCY STOP CHECK ===
+        if getattr(self, '_emergency_stopped', False):
+            self.log(f"🚨 EMERGENCY STOP active. Resume manually via dashboard.")
+            return
+
+        # === v3.3: AUTO-PAUSE CHECK ===
         if getattr(self, '_auto_paused', False):
             self.log(f"🛑 AUTO-PAUSED: {self._consecutive_losses} consecutive losses. Resume manually.")
             return
 
-        # === v3.2: DRAWDOWN CHECK ===
+        # === v3.3: DRAWDOWN CHECK ===
         dd_ok, dd_msg = self.check_drawdown_protection()
         if not dd_ok:
             self.log(f"🛑 {dd_msg}")
@@ -1792,18 +1957,19 @@ class TradingBot:
 
     def monitor_positions(self):
         """
-        v3.2: Advanced position management with tiered partials + adaptive trailing.
+        v3.3: Advanced position management with tiered partials + adaptive trailing.
 
-        Partial Close Schedule:
+        Partial Close Schedule (from EliteStrategy.PARTIAL_SCHEDULE):
         - At 1.5R: Close 40% (lock quick profit)
         - At 2.0R: Close 30% (secure more)
         - Rest trails with Supertrend + ATR buffer
 
-        Trailing Stop:
+        Trailing Stop (from EliteStrategy.TRAIL_LEVELS):
         - At 1.0R: Move SL to breakeven
         - At 1.5R: Lock 0.5R profit
         - At 2.0R: Lock 1.0R profit
         - At 3.0R+: Lock 1.5R profit
+        - At 4.0R+: Lock 2.5R profit
         """
         if self.broker != "capital":
             return
@@ -1881,7 +2047,7 @@ class TradingBot:
                                     pnl_est = partial_size * profit_dist
                                     self.telegram.notify_close(epic, pnl_est, "Partial-2 @ 2.0R")
 
-                    # === ADAPTIVE TRAILING STOP (v3.2) ===
+                    # === ADAPTIVE TRAILING STOP (v3.3) ===
                     new_sl = None
                     reason = ""
 
@@ -1897,33 +2063,23 @@ class TradingBot:
                         else:
                             return current_sl is None or current_sl > desired
 
-                    # Level 4: Profit > 3.0R -> Lock 1.5R
-                    if profit_dist > (one_r * 3.0):
-                        desired = get_lock_sl(1.5)
-                        if sl_should_update(desired):
-                            new_sl = desired
-                            reason = "Trail L4: Lock 1.5R"
+                    # Use trail levels from strategy config
+                    trail_levels = getattr(self.elite_strategy, 'TRAIL_LEVELS', [
+                        {"r_mult": 1.0, "lock_r": 0.0, "label": "Breakeven"},
+                        {"r_mult": 1.5, "lock_r": 0.5, "label": "Lock 0.5R"},
+                        {"r_mult": 2.0, "lock_r": 1.0, "label": "Lock 1.0R"},
+                        {"r_mult": 3.0, "lock_r": 1.5, "label": "Lock 1.5R"},
+                        {"r_mult": 4.0, "lock_r": 2.5, "label": "Lock 2.5R"},
+                    ])
 
-                    # Level 3: Profit > 2.0R -> Lock 1.0R
-                    elif profit_dist > (one_r * 2.0):
-                        desired = get_lock_sl(1.0)
-                        if sl_should_update(desired):
-                            new_sl = desired
-                            reason = "Trail L3: Lock 1.0R"
-
-                    # Level 2: Profit > 1.5R -> Lock 0.5R
-                    elif profit_dist > (one_r * 1.5):
-                        desired = get_lock_sl(0.5)
-                        if sl_should_update(desired):
-                            new_sl = desired
-                            reason = "Trail L2: Lock 0.5R"
-
-                    # Level 1: Profit > 1.0R -> Breakeven
-                    elif profit_dist > one_r:
-                        desired = entry_level
-                        if sl_should_update(desired):
-                            new_sl = desired
-                            reason = "Trail L1: Breakeven"
+                    # Iterate from highest to lowest to find the best matching level
+                    for level in reversed(trail_levels):
+                        if profit_dist > (one_r * level["r_mult"]):
+                            desired = get_lock_sl(level["lock_r"])
+                            if sl_should_update(desired):
+                                new_sl = desired
+                                reason = f"Trail: {level['label']} (>{level['r_mult']}R)"
+                            break
 
                     # Execute SL Update
                     if new_sl:

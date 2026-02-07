@@ -623,7 +623,56 @@ with c2:
         current_bot.stop_loop()
         st.rerun()
 
-st.sidebar.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+# === v3.3: EMERGENCY STOP BUTTON ===
+if st.sidebar.button("🚨 EMERGENCY STOP", key=f"emergency_{broker_code}", type="primary"):
+    current_bot.emergency_stop()
+    st.rerun()
+
+# Show emergency state
+if getattr(current_bot, '_emergency_stopped', False):
+    st.sidebar.markdown("""
+    <div style="background: rgba(255, 68, 68, 0.2); border: 1px solid rgba(255, 68, 68, 0.5);
+                border-radius: 8px; padding: 8px; text-align: center; color: #ff4444; font-weight: 700;">
+        🚨 EMERGENCY STOP ACTIVE
+    </div>
+    """, unsafe_allow_html=True)
+    if st.sidebar.button("✅ Resume from Emergency", key=f"resume_emg_{broker_code}"):
+        current_bot.resume_from_emergency()
+        st.rerun()
+
+# === v3.3: DRY-RUN TOGGLE ===
+st.sidebar.markdown('<p style="color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; margin: 12px 0 4px 0;">Mode</p>', unsafe_allow_html=True)
+dry_run_toggle = st.sidebar.checkbox(
+    "🔵 Dry-Run Mode (no real trades)",
+    value=getattr(current_bot, 'dry_run', True),
+    key=f"dry_run_{broker_code}",
+    help="When enabled, signals are logged but no orders are placed"
+)
+current_bot.dry_run = dry_run_toggle
+
+# === v3.3: MANUAL CONFIRMATION TOGGLE ===
+manual_confirm_toggle = st.sidebar.checkbox(
+    "⏳ Manual Confirm (first N trades)",
+    value=getattr(current_bot, 'manual_confirm_enabled', True),
+    key=f"manual_confirm_{broker_code}",
+    help=f"Require manual approval for first {getattr(current_bot, 'manual_confirm_first_n', 10)} live trades"
+)
+current_bot.manual_confirm_enabled = manual_confirm_toggle
+
+# Auto-pause status
+if getattr(current_bot, '_auto_paused', False):
+    st.sidebar.markdown("""
+    <div style="background: rgba(255, 221, 0, 0.15); border: 1px solid rgba(255, 221, 0, 0.4);
+                border-radius: 8px; padding: 8px; text-align: center; color: #ffdd00; font-weight: 600;">
+        🛑 AUTO-PAUSED (consecutive losses)
+    </div>
+    """, unsafe_allow_html=True)
+    if st.sidebar.button("▶ Resume Trading", key=f"resume_pause_{broker_code}"):
+        current_bot._auto_paused = False
+        current_bot._consecutive_losses = 0
+        st.rerun()
+
+st.sidebar.markdown('<div style="height: 10px;"></div>', unsafe_allow_html=True)
 st.sidebar.divider()
 
 # --- TELEGRAM SETTINGS ---
@@ -1067,6 +1116,39 @@ def show_metrics():
         """, unsafe_allow_html=True)
 
 show_metrics()
+
+# === v3.3: PENDING TRADES (Manual Confirmation) ===
+pending_trades = getattr(current_bot, '_pending_trades', [])
+if pending_trades:
+    st.markdown("""
+    <div style="background: rgba(255, 221, 0, 0.1); border: 1px solid rgba(255, 221, 0, 0.3);
+                border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+        <p style="color: #ffdd00; font-weight: 700; margin: 0 0 12px 0;">
+            ⏳ PENDING TRADES — Manual Confirmation Required
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    for trade in pending_trades:
+        pcol1, pcol2, pcol3, pcol4, pcol5, pcol6 = st.columns([2, 1, 1, 1, 1, 2])
+        with pcol1:
+            st.write(f"**{trade.get('signal')}** {trade.get('epic')}")
+        with pcol2:
+            st.write(f"${trade.get('price', 0):.4f}")
+        with pcol3:
+            st.write(f"SL: {trade.get('sl_pct', 0):.2f}%")
+        with pcol4:
+            st.write(f"R:R {trade.get('rr', 0):.1f}")
+        with pcol5:
+            if st.button("✅", key=f"confirm_{trade.get('pending_id')}"):
+                current_bot.confirm_pending_trade(trade.get('pending_id'))
+                st.rerun()
+        with pcol6:
+            if st.button("❌ Reject", key=f"reject_{trade.get('pending_id')}"):
+                current_bot.reject_pending_trade(trade.get('pending_id'))
+                st.rerun()
+
+    st.divider()
 
 # Tabs
 tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "🏆 Performance", "🔬 Backtest", "🎯 Strategy Intelligence", "🤖 Learning", "📅 Calendar"])

@@ -1,6 +1,6 @@
 """
-Elite Strategie v3.0 (2026 Ultimate Volume Profile Core)
-========================================================
+Elite Strategie v3.3 (2026 Ultimate Volume Profile Core - Final Live Deploy)
+=============================================================================
 Designed for the "Elite 15" Asset List on Capital.com.
 Core Edge: Volume Profile (VP) + VWAP + Confluence.
 
@@ -29,27 +29,28 @@ from ta.volume import VolumeWeightedAveragePrice
 
 class EliteStrategy:
     """
-    Elite Trading Strategy 3.2 (Volume Profile Centered + Asset-Class Risk)
+    Elite Trading Strategy 3.3 (Volume Profile Centered + Asset-Class Risk)
 
-    v3.2 Changes (Live Deploy):
-    - Crypto: ATR×5.0 SL / ATR×10.0 TP — wider to survive wicks
-    - Forex: ATR×2.5 SL / ATR×5.5 TP — slightly wider TP
-    - Crypto min SL raised to 2.0% (was 1.5%)
-    - Adaptive trailing + partial close support
+    v3.3 Changes (Final Live Deploy):
+    - Crypto: ATR×5.5 SL / ATR×12.0 TP — wider for trend continuation
+    - Forex: ATR×3.0 SL / ATR×6.0 TP — room to breathe
+    - Partial close schedule: 40% @ 1.5R, 30% @ 2.0R, rest trails
+    - Adaptive trailing with Supertrend + ATR buffer after 1:1
+    - Enhanced signal output with volatility context
     """
 
-    # === ASSET CLASS RISK PROFILES (v3.2 - Optimized for Higher PF) ===
+    # === ASSET CLASS RISK PROFILES (v3.3 - Final Optimized) ===
     RISK_PROFILES = {
         "crypto": {
-            "atr_sl_mult": 5.0,       # v3.2: Wider SL (was 4.0) — survives crypto wicks
-            "atr_tp_mult": 10.0,      # v3.2: TP at 10× ATR (was 8.0) — lets winners run
-            "min_sl_pct": 0.02,       # v3.2: Min 2.0% SL (was 1.5%) — crypto needs room
-            "max_sl_pct": 0.06,       # Maximum 6% SL distance
+            "atr_sl_mult": 5.5,       # v3.3: Wider SL (was 5.0) — better wick survival
+            "atr_tp_mult": 12.0,      # v3.3: TP at 12× ATR (was 10.0) — lets trends run
+            "min_sl_pct": 0.02,       # Min 2.0% SL — crypto needs room
+            "max_sl_pct": 0.07,       # v3.3: Maximum 7% SL distance (was 6%)
             "min_rr": 2.0,            # Minimum R:R
         },
         "forex": {
-            "atr_sl_mult": 2.5,       # Moderate SL for forex
-            "atr_tp_mult": 5.5,       # v3.2: TP at 5.5× ATR (was 5.0) — wider targets
+            "atr_sl_mult": 3.0,       # v3.3: Wider SL (was 2.5) — avoids premature stops
+            "atr_tp_mult": 6.0,       # v3.3: TP at 6.0× ATR (was 5.5) — wider targets
             "min_sl_pct": 0.004,      # Minimum 0.4% SL (≈40 pips on majors)
             "max_sl_pct": 0.025,      # Maximum 2.5%
             "min_rr": 2.0,
@@ -62,6 +63,22 @@ class EliteStrategy:
             "min_rr": 2.0,
         }
     }
+
+    # === PARTIAL CLOSE SCHEDULE (v3.3) ===
+    PARTIAL_SCHEDULE = [
+        {"r_mult": 1.5, "close_pct": 0.40, "label": "Partial-1 @ 1.5R (40%)"},
+        {"r_mult": 2.0, "close_pct": 0.30, "label": "Partial-2 @ 2.0R (30%)"},
+        # Remaining 30% trails with Supertrend + ATR buffer
+    ]
+
+    # === TRAILING STOP LEVELS (v3.3 - Adaptive) ===
+    TRAIL_LEVELS = [
+        {"r_mult": 1.0, "lock_r": 0.0,  "label": "Breakeven"},
+        {"r_mult": 1.5, "lock_r": 0.5,  "label": "Lock 0.5R"},
+        {"r_mult": 2.0, "lock_r": 1.0,  "label": "Lock 1.0R"},
+        {"r_mult": 3.0, "lock_r": 1.5,  "label": "Lock 1.5R"},
+        {"r_mult": 4.0, "lock_r": 2.5,  "label": "Lock 2.5R"},
+    ]
 
     def __init__(self, config=None):
         self.config = config or {}
@@ -576,12 +593,21 @@ class EliteStrategy:
                 tp_level = close - tp_dist
             final_rr = min_rr
 
+        # v3.3: Compute Supertrend-based adaptive trail level
+        supertrend_trail = row['supertrend']
+        atr_buffer = atr * 0.5  # Half ATR buffer beyond Supertrend
+        if signal_candidate == "BUY":
+            adaptive_trail_sl = supertrend_trail - atr_buffer
+        else:
+            adaptive_trail_sl = supertrend_trail + atr_buffer
+
         return {
             "signal": signal_candidate,
             "confidence": 0.8 + (score/10.0),
             "sl": round(sl_level, 5),
             "tp": round(tp_level, 5),
             "adx": adx,
+            "atr": atr,
             "rsi": row.get('rsi', 50),
             "reason": f"{vp_reason} + {score} Confluence [{asset_class} ATR×{atr_sl_mult}]",
             "filters": details,
@@ -592,4 +618,9 @@ class EliteStrategy:
             "tp_distance_pct": round(tp_dist / close * 100, 3),
             "rr_ratio": round(final_rr, 2),
             "confluence_score": score,
+            "regime": regime,
+            "supertrend_trail": round(adaptive_trail_sl, 5),
+            "volatility_atr_pct": round(atr / close * 100, 3),
+            "partial_schedule": self.PARTIAL_SCHEDULE,
+            "trail_levels": self.TRAIL_LEVELS,
         }
