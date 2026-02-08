@@ -38,28 +38,28 @@ class EliteStrategy:
     - Adaptive trailing + partial close support
     """
 
-    # === ASSET CLASS RISK PROFILES (v3.2 - Optimized for Higher PF) ===
+    # === ASSET CLASS RISK PROFILES (v4.0 - Profit Optimization) ===
     RISK_PROFILES = {
         "crypto": {
-            "atr_sl_mult": 5.0,       # v3.2: Wider SL (was 4.0) — survives crypto wicks
-            "atr_tp_mult": 10.0,      # v3.2: TP at 10× ATR (was 8.0) — lets winners run
-            "min_sl_pct": 0.02,       # v3.2: Min 2.0% SL (was 1.5%) — crypto needs room
-            "max_sl_pct": 0.06,       # Maximum 6% SL distance
-            "min_rr": 2.0,            # Minimum R:R
+            "atr_sl_mult": 7.0,       # v4.0: Widest SL (was 5.0) — survive random wicks
+            "atr_tp_mult": 12.0,      # v4.0: TP at 12× ATR (was 10.0) — maximize wins
+            "min_sl_pct": 0.02,       # v4.0: Min 2.0% SL (ensure space)
+            "max_sl_pct": 0.08,       # Maximum 8% SL distance
+            "min_rr": 1.5,            # v4.0: Lower R:R req (1.5) to allow wider SLs
         },
         "forex": {
-            "atr_sl_mult": 2.5,       # Moderate SL for forex
-            "atr_tp_mult": 5.5,       # v3.2: TP at 5.5× ATR (was 5.0) — wider targets
-            "min_sl_pct": 0.004,      # Minimum 0.4% SL (≈40 pips on majors)
-            "max_sl_pct": 0.025,      # Maximum 2.5%
-            "min_rr": 2.0,
+            "atr_sl_mult": 3.5,       # v4.0: Wider SL (was 2.5)
+            "atr_tp_mult": 6.0,       # v4.0: TP at 6.0× ATR
+            "min_sl_pct": 0.006,      # v4.0: Min 0.6% SL (≈60 pips on majors)
+            "max_sl_pct": 0.03,       # Maximum 3.0%
+            "min_rr": 1.5,            # v4.0: Lower R:R req
         },
         "default": {
-            "atr_sl_mult": 3.0,
-            "atr_tp_mult": 6.0,
-            "min_sl_pct": 0.008,
-            "max_sl_pct": 0.04,
-            "min_rr": 2.0,
+            "atr_sl_mult": 4.0,
+            "atr_tp_mult": 7.0,
+            "min_sl_pct": 0.01,
+            "max_sl_pct": 0.05,
+            "min_rr": 1.5,
         }
     }
 

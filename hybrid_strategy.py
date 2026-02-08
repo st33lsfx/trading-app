@@ -87,7 +87,7 @@ class HybridStrategy:
         else:
             return self.trend_following, 'TREND_2026'
 
-    def get_signal(self, df, config=None, major_trend="NEUTRAL"):
+    def get_signal(self, df, config=None, major_trend="NEUTRAL", asset_class=None):
         """
         Get trading signal with automatic strategy switching.
         Passes through all metadata including indicators_used for learning.
@@ -130,7 +130,7 @@ class HybridStrategy:
             signal_data = strategy.get_signal(df, config, major_trend)
         else:
             # EliteStrategy.get_signal(df, asset_class=None)
-            signal_data = strategy.get_signal(df)
+            signal_data = strategy.get_signal(df, asset_class=asset_class)
 
         # Enhance result with regime info
         signal_data['regime'] = regime

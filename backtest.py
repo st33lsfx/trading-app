@@ -187,7 +187,14 @@ class Backtester:
                 # but we already added indicators to full DF. 
                 # VP needs to be recalc-ed on the slice though.
                 try:
-                    signal = strategy.get_signal(df_slice)
+                    # Detect asset class for accurate risk profiles
+                    asset_class = "default"
+                    if "-USD" in self.ticker: # Yahoo Crypto
+                         asset_class = "crypto"
+                    elif "=X" in self.ticker: # Yahoo Forex
+                         asset_class = "forex"
+                    
+                    signal = strategy.get_signal(df_slice, asset_class=asset_class)
                 except:
                     continue
                     
@@ -661,27 +668,59 @@ class Backtester:
 if __name__ == "__main__":
     bt = Backtester()
 
-    # Single ticker test
-    print("=" * 50)
-    print("Running backtest on EURUSD...")
-    print("=" * 50)
+    # Top 15 Assets (Crypto + Forex)
+    # Yahoo Finance Tickers
+    assets = [
+        # Crypto (9)
+        "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD", 
+        "DOGE-USD", "BNB-USD", "LTC-USD", "DOT-USD",
+        # Forex (6)
+        "EURUSD=X", "GBPUSD=X", "JPY=X", "AUDUSD=X", "USDCAD=X", "CHF=X" 
+        # Note: Yahoo Tickers for USDJPY is JPY=X, USDCHF is CHF=X usually implies quote in local?
+        # Let's double check standard pairs: "EURUSD=X" is standard.
+        # "JPY=X" is actually USD/JPY inverted or JPY/USD?
+        # "USDJPY=X" is safer if available, but let's try standard list.
+    ]
+    
+    # Better list for Yahoo
+    assets = [
+        "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD", 
+        "ADA-USD", "DOGE-USD", "LTC-USD", "DOT-USD",
+        "EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X", "USDCHF=X"
+    ]
 
-    result = bt.run("EURUSD=X", period="3mo", interval="5m")
+    print("=" * 50)
+    print(f"Running BACKTEST on Top {len(assets)} Assets (Crypto + Forex)")
+    print("=" * 50)
+    
+    # Run multi-ticker test
+    results = []
+    for ticker in assets:
+        bt.ticker = ticker # Set for identification inside run
+        print(f"Testing {ticker}...", end=" ", flush=True)
+        try:
+            res = bt.run(ticker, period="60d", interval="15m")
+            if 'error' in res:
+                print(f"FAIL: {res['error']}")
+            else:
+                print(f"DONE | Win: {res['win_rate']}% | PF: {res['profit_factor']} | Ret: {res['total_return_pct']}% | Trades: {res['total_trades']}")
+                results.append(res)
+        except Exception as e:
+             print(f"CRASH: {e}")
 
-    if 'error' in result:
-        print(f"Error: {result['error']}")
+    # Summary
+    print("\n" + "="*50)
+    print("FINAL SUMMARY")
+    print("="*50)
+    if results:
+        total_pnl = sum([r['total_return_pct'] for r in results])
+        avg_pf = np.mean([r['profit_factor'] for r in results if r['profit_factor'] < 100])
+        print(f"Total Return (Sum of %): {total_pnl:.2f}%")
+        print(f"Average Profit Factor: {avg_pf:.2f}")
+        
+        print("\nTop Performers:")
+        results.sort(key=lambda x: x['total_return_pct'], reverse=True)
+        for r in results[:5]:
+             print(f"{r['ticker']}: {r['total_return_pct']}% (PF: {r['profit_factor']})")
     else:
-        print(f"\nResults for {result['ticker']}:")
-        print(f"  Period: {result['start_date']} to {result['end_date']}")
-        print(f"  Data points: {result['data_points']}")
-        print(f"  Total trades: {result['total_trades']}")
-        print(f"  Win rate: {result['win_rate']}%")
-        print(f"  Profit factor: {result['profit_factor']}")
-        print(f"  Total return: {result['total_return_pct']}%")
-        print(f"  Max drawdown: {result['max_drawdown_pct']}%")
-        print(f"  Sharpe ratio: {result['sharpe_ratio']}")
-        print(f"  Expectancy: {result['expectancy']}% per trade")
-
-        print(f"\n  Last 5 trades:")
-        for t in result['trades'][-5:]:
-            print(f"    {t['entry_time']} -> {t['exit_time']}: {t['pnl_pct']:+.2f}% ({t['exit_reason']})")
+        print("No valid results.")

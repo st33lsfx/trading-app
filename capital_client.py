@@ -144,7 +144,8 @@ class CapitalClient:
                 'lot_size': info.get('instrument', {}).get('lotSize', 1),
                 'bid': snapshot.get('bid', 0),
                 'offer': snapshot.get('offer', 0),
-                'margin_factor': margin_factor
+                'margin_factor': margin_factor,
+                'market_status': snapshot.get('marketStatus', 'UNKNOWN')
             }
         except:
             return {'min_size': 0.1, 'max_size': 100000, 'lot_size': 1, 'margin_factor': 0.05}
@@ -206,11 +207,11 @@ class CapitalClient:
         # Asset-class-aware minimum SL/TP distances
         asset_class = self._detect_asset_class(epic)
         MIN_SL_PCT = {
-            "crypto": 0.015,   # 1.5% — crypto noise is extreme
-            "forex": 0.004,    # 0.4% — ~40 pips on majors
-            "default": 0.008,  # 0.8% — stocks/commodities
+            "crypto": 0.02,    # v4.0: Min 2.0% SL (was 1.5%) — match Strategy
+            "forex": 0.006,    # v4.0: Min 0.6% SL (was 0.4%) — match Strategy
+            "default": 0.01,   # v4.0: Min 1.0% SL
         }
-        MIN_RR = 2.0  # Enforce 2.0 R:R minimum for positive expectancy
+        MIN_RR = 1.5  # v4.0: Lower R:R to 1.5 to allow wider SLs (was 2.0)
 
         # Get current price to validate SL/TP direction
         try:

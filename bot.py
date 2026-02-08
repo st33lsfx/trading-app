@@ -95,9 +95,10 @@ class TradingBot:
         self._thread = None
         self.max_positions = MAX_POSITIONS
 
-        # === STRATEGY SELECTION ===
+        # === STRATEGY SELECTION (UPDATED v3.3) ===
+        # "hybrid" = HybridStrategy (ADX Switch: Trend/Range) - DEFAULT
         # "elite" = EliteStrategy (VWAP + VP + Confluence) - 15m
-        self.strategy_type = "elite"
+        self.strategy_type = "hybrid"
         
         # =====================================================
         # ELITE STRATEGY CONFIG (15m)
@@ -129,15 +130,19 @@ class TradingBot:
         # Bot se učí z vlastních obchodů a automaticky optimalizuje
         self.learning_engine = get_learning_engine(use_supabase=True)
         
-        # Get learned parameters (or use defaults)
-        learned = self.learning_engine.get_learned_params()
+        self.trade_amount = 250.0   # v4.0: Target Risk per trade (CZK)
+        # self.trade_amount = 1000.0 # OLD: Margin amount
         
-        # Merging Learned Params with Strategy Config
-        # Prioritize learned params, but fall back to strategy_config (user/backtest settings)
-        self.smart_analyst = get_smart_analyst()  # ZAPNUTO - Rate limits opraveny
-        self.telegram = get_telegram_notifier()   # Telegram notifications
+        # Risk Management (v4.0 Update)
+        self.dry_run = getattr(self, "dry_run", DRY_RUN)
+        self.max_risk_pct = 0.20 # v4.0: Max risk 20% equity to allow min crypto size
         
-        # Override with learned but keep strict boundaries
+        # Daily Limits (v4.0)
+        self.daily_profit_target = 400.0  # CZK (Stop trading if hit)
+        self.max_daily_loss = 150.0       # CZK (Stop trading if hit)
+        self.daily_pnl = 0.0
+        self.daily_reset_date = date.today().isoformat()
+        self.session_stopped_reason = None # "daily_loss", "profit_target", "drawdown"
         if learned:
              # Adapt only slightly
              pass
@@ -241,6 +246,10 @@ class TradingBot:
         self._consecutive_losses = 0
         self._auto_paused = False
         self._total_live_trades = 0  # Counter for risk ramp-up
+
+        # === v3.3: SAFETY STARTUP ===
+        self.startup_cycles = 0  # Counter for auto-dry-run
+        self.min_dry_run_cycles = 5 # Force dry run for first 5 scans
 
         # Compounding - zvyšuj trade_amount s profitem
         self.compound_profits = True
@@ -708,25 +717,39 @@ class TradingBot:
             if risk_per_unit <= 0:
                 return 0
 
-            # Position size
-            raw_qty = risk_amount_czk / risk_per_unit
+        # v4.0: Sizing based on TARGET RISK AMOUNT (250 CZK)
+        # We ignore 'risk_pct' ramp-up for now to prioritize bigger sizing.
+        # But we respect the 100 CZK ramp-up for first 10 trades.
+        target_risk_czk = self.trade_amount # 250 CZK
+        
+        if self._total_live_trades < 10:
+             target_risk_czk = 100.0 # Safer start
+        
+        # SL distance is in asset price units (e.g., $475 for BTC, 0.0054 for EURUSD)
+        risk_per_unit = sl_distance * conversion  # CZK per unit of SL
 
-            # Get broker constraints
-            inst_info = self.client.get_instrument_info(epic)
-            min_size = inst_info.get('min_size', 0.01)
-            max_size = inst_info.get('max_size', 100000)
+        if risk_per_unit <= 0:
+            return 0
 
-            if raw_qty < min_size:
-                # Check if min size risk is acceptable (max 2% of equity)
-                min_risk_czk = min_size * sl_distance * conversion
-                max_acceptable = equity * 0.02  # Never risk more than 2% per trade
-                if min_risk_czk > max_acceptable:
-                    self.log(f"⚠️ SKIP {epic}: Min size risk {min_risk_czk:.0f} CZK > 2% equity ({max_acceptable:.0f} CZK)")
-                    return 0
-                raw_qty = min_size
-                self.log(f"📐 {epic}: Using min size {min_size} (risk: {min_risk_czk:.1f} CZK = {min_risk_czk/equity*100:.1f}% equity)")
+        # Position size needed to risk exactly 'target_risk_czk'
+        raw_qty = target_risk_czk / risk_per_unit
 
-            # Round down to step
+        # Get broker constraints
+        inst_info = self.client.get_instrument_info(epic)
+        min_size = inst_info.get('min_size', 0.01)
+        max_size = inst_info.get('max_size', 100000)
+
+        if raw_qty < min_size:
+            # Check if min size risk is acceptable (max 15% of equity)
+            min_risk_czk = min_size * sl_distance * conversion
+            max_acceptable = equity * self.max_risk_pct  # 15% equity cap
+            if min_risk_czk > max_acceptable:
+                self.log(f"⚠️ SKIP {epic}: Min size risk {min_risk_czk:.0f} CZK > 15% equity ({max_acceptable:.0f} CZK)")
+                return 0
+            raw_qty = min_size
+            self.log(f"📐 {epic}: Using min size {min_size} (risk: {min_risk_czk:.1f} CZK)")
+
+        # Round down to step
             step = inst_info.get('step', 0.01)
             if step and step > 0:
                 import math
@@ -1155,7 +1178,7 @@ class TradingBot:
         
         # Double-check blacklist
         if self.is_blacklisted(yf_ticker) or self.is_blacklisted(t212_ticker):
-            # self.log(f"[{yf_ticker}] Skipped - blacklisted")  # Too noisy
+            self.log(f"[{yf_ticker}] Skipped - Blacklisted")
             return False
         
         # ========================================
@@ -1181,11 +1204,28 @@ class TradingBot:
         # Pre-check affordability for Capital.com (saves API calls & time)
         if self.broker == "capital" and not is_priority:
             try:
-                if not self.client.can_afford_instrument(t212_ticker, self.trade_amount):
-                    self.log(f"[{yf_ticker}] Cannot afford - skipping")
+                # Get Info (Status + Limits)
+                info = self.client.get_instrument_info(t212_ticker)
+                
+                # 1. Market Status Check
+                status = info.get('market_status', 'UNKNOWN')
+                if status not in ['TRADEABLE', 'OPEN']:
+                    self.log(f"[{yf_ticker}] Market Closed ({status}) - Skipping")
                     return False
+
+                # 2. Affordability Check
+                # Re-use info to save API call in can_afford (optimization needed there or just do it here)
+                # For now, simplistic check using fetched info
+                min_size = info.get('min_size', 0.1)
+                bid = info.get('bid', 0)
+                margin = info.get('margin_factor', 0.05)
+                req_margin = min_size * bid * margin
+                
+                if req_margin > self.trade_amount:
+                     self.log(f"[{yf_ticker}] Cannot afford (Req: {req_margin:.2f}, Avail: {self.trade_amount}) - Skipping")
+                     return False
             except Exception as e:
-                self.log(f"[{yf_ticker}] Affordability check failed: {e}")
+                self.log(f"[{yf_ticker}] Pre-flight check failed: {e}")
 
         try:
             strategy = Strategy(yf_ticker)
@@ -1226,12 +1266,14 @@ class TradingBot:
                 regime = "TREND" if result.get("adx", 0) > 25 else "RANGING"
                 strategy_used = "ELITE_VP"
                 
-            elif self.strategy_type == "mean_reversion":
-                # HybridStrategy automaticky přepíná mezi mean reversion a trend following
-                result = self.hybrid_strategy.get_signal(df, major_trend=major_trend)
+            elif self.strategy_type == "hybrid" or self.strategy_type == "mean_reversion":
+                # === HYBRID STRATEGY (v2.0) ===
+                # Automaticky přepíná mezi Mean Reversion a Trend Following
+                # UPDATED: Pass asset_class to ensure correct risk limits in EliteStrategy
+                result = self.hybrid_strategy.get_signal(df, major_trend=major_trend, asset_class=asset_class)
                 signal = result.get("signal")
                 regime = result.get("regime", "UNKNOWN")
-                strategy_used = result.get("strategy", "MEAN_REVERSION")
+                strategy_used = result.get("strategy", "HYBRID_AUTO")
             else:
                 df = strategy.calculate_indicators(df)
                 result = strategy.get_signal(df, self.strategy_config)
@@ -1437,6 +1479,7 @@ class TradingBot:
                     # Use risk-based sizing
                     qty = self.calculate_risk_based_size(t212_ticker, sl_distance, last_price, asset_class)
                     if qty <= 0:
+                        self.log(f"❌ {t212_ticker}: Calculated QTY is 0 or negative! Skipping.")
                         return False
 
                     # === DETAILED TRADE LOGGING (v3.2) ===
@@ -1457,7 +1500,13 @@ class TradingBot:
                     self.log(f"{'='*50}")
 
                     # === DRY-RUN MODE CHECK ===
-                    if self.dry_run:
+                    # Effective Dry Run = Configured OR Startup Safety Phase
+                    is_dry_run = self.dry_run
+                    if self.startup_cycles < self.min_dry_run_cycles:
+                         is_dry_run = True
+                         self.log(f"🛡️ SAFETY MODE: Forcing DRY-RUN (Cycle {self.startup_cycles}/{self.min_dry_run_cycles})")
+
+                    if is_dry_run:
                         self.log(f"🔵 DRY-RUN: Trade NOT executed — dry_run mode active")
 
                         if hasattr(self, 'telegram') and self.telegram.enabled:
@@ -1742,6 +1791,7 @@ class TradingBot:
 
     def scan_cycle(self):
         self.update_daily_pnl()
+        self.startup_cycles += 1 # Increment safety counter
 
         # Record closed trades for learning (every cycle)
         self.record_closed_trades()
