@@ -1,17 +1,24 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 import time
 from bot import TradingBot
 from backtest import Backtester
+from session_volume_profile import (
+    SessionVolumeProfile,
+    build_session_profile_chart_data,
+    build_levels_table,
+    SESSION_COLORS,
+)
 try:
     from economic_data import get_economic_calendar, is_market_volatile_today
 except (ImportError, KeyError) as e:
     print(f"⚠️ Error importing economic_data: {e}")
     # Fallback functions to prevent crash
-    def get_economic_calendar(): 
+    def get_economic_calendar():
         return pd.DataFrame()
-    def is_market_volatile_today(): 
+    def is_market_volatile_today():
         return False, "Data Unavailable"
 
 # Page Config
@@ -1069,7 +1076,7 @@ def show_metrics():
 show_metrics()
 
 # Tabs
-tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "🏆 Performance", "🔬 Backtest", "🎯 Strategy Intelligence", "🤖 Learning", "📅 Calendar"])
+tabs = st.tabs(["🧠 AI Scanner", "📊 Positions", "📈 Market Chart", "📐 Volume Profile", "🏆 Performance", "🔬 Backtest", "🎯 Strategy Intelligence", "🤖 Learning", "📅 Calendar"])
 
 # TAB 1: AI SCANNER (Live Data + Logs)
 with tabs[0]:
@@ -1364,8 +1371,8 @@ with tabs[1]:
 
     show_positions()
 
-# TAB 4: PERFORMANCE
-with tabs[3]:
+# TAB 5: PERFORMANCE
+with tabs[4]:
     @st.fragment(run_every=30)
     def show_performance():
         st.subheader("Daily Performance Report")
@@ -1684,8 +1691,303 @@ with tabs[2]:
     """
     components.html(tv_html, height=530)
 
-# TAB 5: BACKTEST
-with tabs[4]:
+# TAB 4: SESSION VOLUME PROFILE
+with tabs[3]:
+    st.markdown("""
+    <div style="margin-bottom: 20px;">
+        <h3 style="color: #f8fafc; margin: 0;">📐 Session Volume Profile</h3>
+        <p style="color: #64748b; font-size: 0.9rem; margin-top: 4px;">
+            Volume Profile per session (Asian / London / NY) — POC, VAH, VAL, VWAP
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- Symbol selector (reuse watchlist from chart tab) ---
+    vp_watch = []
+    try:
+        vp_positions = current_bot.client.get_positions()
+        if isinstance(vp_positions, list):
+            for p in vp_positions:
+                if isinstance(p, dict):
+                    if broker_code == 'capital':
+                        mkt = p.get('market', {}) or {}
+                        pos = p.get('position', {}) or {}
+                        sym = mkt.get('epic') or pos.get('epic')
+                        if sym:
+                            vp_watch.append(sym)
+                    else:
+                        ticker = p.get('ticker')
+                        if ticker:
+                            vp_watch.append(ticker)
+    except Exception:
+        pass
+
+    for pt in ["EURUSD", "AUDUSD", "ETHUSD", "USDJPY", "BTCUSD"]:
+        if pt not in vp_watch:
+            vp_watch.append(pt)
+
+    vp_col1, vp_col2, vp_col3 = st.columns([2, 1, 1])
+    with vp_col1:
+        vp_ticker = st.selectbox(
+            "Market", vp_watch,
+            key="vp_ticker_select",
+            help="Select market for volume profile analysis"
+        )
+    with vp_col2:
+        vp_period = st.selectbox(
+            "Period", ["5d", "10d", "1mo"],
+            key="vp_period_select",
+            help="Data lookback period"
+        )
+    with vp_col3:
+        vp_interval = st.selectbox(
+            "Interval", ["5m", "15m", "1h"],
+            key="vp_interval_select",
+            help="Candle timeframe"
+        )
+
+    if st.button("Analyze Volume Profile", key="vp_analyze_btn", type="primary"):
+        with st.spinner("Fetching data & calculating session profiles..."):
+            try:
+                import yfinance as yf
+                from market_utils import map_ticker_to_yf
+
+                # Map ticker to yfinance format
+                if broker_code == "capital":
+                    # Capital.com epics — try direct forex or crypto mapping
+                    yf_sym = vp_ticker
+                    if len(vp_ticker) == 6 and vp_ticker.isalpha():
+                        yf_sym = f"{vp_ticker[:3]}{vp_ticker[3:]}=X"
+                    elif vp_ticker.endswith("USD") and len(vp_ticker) <= 7:
+                        base = vp_ticker.replace("USD", "")
+                        if base in ("BTC", "ETH", "SOL", "ADA", "XRP", "DOGE"):
+                            yf_sym = f"{base}-USD"
+                        else:
+                            yf_sym = f"{vp_ticker[:3]}{vp_ticker[3:]}=X"
+                else:
+                    yf_sym = map_ticker_to_yf(vp_ticker) or vp_ticker
+
+                ticker_obj = yf.Ticker(yf_sym)
+                df_vp = ticker_obj.history(period=vp_period, interval=vp_interval)
+
+                if df_vp.empty or len(df_vp) < 10:
+                    st.warning(f"Not enough data for {vp_ticker} ({yf_sym}). Try a different period/interval.")
+                else:
+                    svp = SessionVolumeProfile(num_bins=30, value_area_pct=0.70)
+                    result = svp.analyze(df_vp)
+
+                    if result is None:
+                        st.warning("Could not calculate volume profile. Not enough session data.")
+                    else:
+                        # --- Current Session Badge ---
+                        curr_sess = result["current_session"]
+                        sess_color = SESSION_COLORS.get(curr_sess, "#888888")
+                        st.markdown(f"""
+                        <div style="display: inline-flex; align-items: center; gap: 8px;
+                                    background: rgba({int(sess_color[1:3],16)}, {int(sess_color[3:5],16)}, {int(sess_color[5:7],16)}, 0.1);
+                                    border: 1px solid {sess_color}; padding: 8px 16px; border-radius: 12px;
+                                    margin-bottom: 16px;">
+                            <span style="width: 8px; height: 8px; background: {sess_color}; border-radius: 50%;"></span>
+                            <span style="color: {sess_color}; font-weight: 600;">Current Session: {curr_sess}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        # --- Key Levels Table ---
+                        st.markdown("#### Session Levels")
+                        levels_df = build_levels_table(result)
+                        if not levels_df.empty:
+                            # Format numeric columns
+                            price_decimals = 5 if df_vp['Close'].iloc[-1] < 10 else 2
+                            fmt_cols = ["POC", "VAH", "VAL", "VWAP", "VWAP +1\u03c3", "VWAP -1\u03c3"]
+                            for c in fmt_cols:
+                                if c in levels_df.columns:
+                                    levels_df[c] = levels_df[c].apply(
+                                        lambda x: f"{x:.{price_decimals}f}" if pd.notna(x) else "-"
+                                    )
+                            st.dataframe(levels_df, use_container_width=True, hide_index=True)
+
+                        # --- Volume Profile Chart (horizontal bars per session) ---
+                        st.markdown("#### Volume Distribution by Session")
+
+                        import plotly.graph_objects as go
+
+                        fig = go.Figure()
+
+                        for sess_name, entry in result["sessions"].items():
+                            profile = entry.get("profile")
+                            if not profile:
+                                continue
+
+                            fig.add_trace(go.Bar(
+                                y=profile["bin_centers"],
+                                x=profile["bin_volumes"],
+                                orientation='h',
+                                name=sess_name,
+                                marker_color=SESSION_COLORS.get(sess_name, "#888"),
+                                opacity=0.7,
+                            ))
+
+                            # POC line
+                            fig.add_hline(
+                                y=profile["poc"],
+                                line_dash="dash",
+                                line_color=SESSION_COLORS.get(sess_name, "#fff"),
+                                line_width=1,
+                                annotation_text=f"{sess_name} POC",
+                                annotation_position="top left",
+                                annotation_font_color=SESSION_COLORS.get(sess_name, "#fff"),
+                                annotation_font_size=10,
+                            )
+
+                        # Composite VAH/VAL
+                        comp = result.get("composite")
+                        if comp:
+                            fig.add_hline(
+                                y=comp["vah"], line_dash="dot", line_color="#00ff88",
+                                line_width=2,
+                                annotation_text="VAH",
+                                annotation_position="top right",
+                                annotation_font_color="#00ff88",
+                            )
+                            fig.add_hline(
+                                y=comp["val"], line_dash="dot", line_color="#00ff88",
+                                line_width=2,
+                                annotation_text="VAL",
+                                annotation_position="bottom right",
+                                annotation_font_color="#00ff88",
+                            )
+                            fig.add_hline(
+                                y=comp["poc"], line_dash="solid", line_color="#ffffff",
+                                line_width=2,
+                                annotation_text="Composite POC",
+                                annotation_position="top right",
+                                annotation_font_color="#ffffff",
+                            )
+
+                        # Current price line
+                        last_price = float(df_vp['Close'].iloc[-1])
+                        fig.add_hline(
+                            y=last_price, line_dash="solid", line_color="#ff4444",
+                            line_width=1.5,
+                            annotation_text=f"Price: {last_price:.{price_decimals}f}",
+                            annotation_position="top left",
+                            annotation_font_color="#ff4444",
+                        )
+
+                        fig.update_layout(
+                            template="plotly_dark",
+                            paper_bgcolor="rgba(10, 15, 28, 0.8)",
+                            plot_bgcolor="rgba(10, 15, 28, 0.5)",
+                            height=500,
+                            barmode="overlay",
+                            xaxis_title="Volume",
+                            yaxis_title="Price",
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom", y=1.02,
+                                xanchor="center", x=0.5,
+                                font=dict(color="#a0aec0"),
+                            ),
+                            margin=dict(l=60, r=30, t=40, b=40),
+                        )
+
+                        st.plotly_chart(fig, use_container_width=True)
+
+                        # --- VWAP per session ---
+                        st.markdown("#### Session VWAP Levels")
+                        vwap_cols = st.columns(len(result["sessions"]))
+                        for i, (sess_name, entry) in enumerate(result["sessions"].items()):
+                            vwap_data = entry.get("vwap_data")
+                            with vwap_cols[i]:
+                                sc = SESSION_COLORS.get(sess_name, "#888")
+                                st.markdown(f"""
+                                <div style="background: rgba(16,24,40,0.7); border: 1px solid {sc};
+                                            border-radius: 12px; padding: 16px; text-align: center;">
+                                    <div style="color: {sc}; font-weight: 700; font-size: 0.85rem;
+                                                text-transform: uppercase; letter-spacing: 1px;
+                                                margin-bottom: 8px;">{sess_name}</div>
+                                """, unsafe_allow_html=True)
+                                if vwap_data:
+                                    st.metric("VWAP", f"{vwap_data['vwap']:.{price_decimals}f}")
+                                    st.caption(f"+1\u03c3: {vwap_data['upper_1']:.{price_decimals}f}")
+                                    st.caption(f"-1\u03c3: {vwap_data['lower_1']:.{price_decimals}f}")
+                                else:
+                                    st.caption("No data")
+                                st.markdown("</div>", unsafe_allow_html=True)
+
+                        # --- Signal Score ---
+                        st.markdown("#### VP Signal Assessment")
+                        levels = result.get("levels", {})
+                        if levels:
+                            buy_score, buy_reasons = svp.get_signal_score(last_price, levels, "BUY")
+                            sell_score, sell_reasons = svp.get_signal_score(last_price, levels, "SELL")
+
+                            sc1, sc2 = st.columns(2)
+                            with sc1:
+                                buy_pct = min(buy_score / 5 * 100, 100)
+                                bar_color = "#00ff88" if buy_score >= 3 else "#ffdd00" if buy_score >= 2 else "#ff4444"
+                                st.markdown(f"""
+                                <div style="background: rgba(16,24,40,0.7); border: 1px solid rgba(0,255,136,0.2);
+                                            border-radius: 12px; padding: 16px;">
+                                    <div style="color: #00ff88; font-weight: 700; margin-bottom: 8px;">
+                                        BUY Score: {buy_score}/5
+                                    </div>
+                                    <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 8px; overflow: hidden;">
+                                        <div style="width: {buy_pct}%; height: 100%; background: {bar_color}; border-radius: 8px;"></div>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                if buy_reasons:
+                                    for r in buy_reasons:
+                                        st.caption(f"  {r}")
+
+                            with sc2:
+                                sell_pct = min(sell_score / 5 * 100, 100)
+                                bar_color_s = "#ff00aa" if sell_score >= 3 else "#ffdd00" if sell_score >= 2 else "#00ff88"
+                                st.markdown(f"""
+                                <div style="background: rgba(16,24,40,0.7); border: 1px solid rgba(255,0,170,0.2);
+                                            border-radius: 12px; padding: 16px;">
+                                    <div style="color: #ff00aa; font-weight: 700; margin-bottom: 8px;">
+                                        SELL Score: {sell_score}/5
+                                    </div>
+                                    <div style="background: rgba(255,255,255,0.1); border-radius: 8px; height: 8px; overflow: hidden;">
+                                        <div style="width: {sell_pct}%; height: 100%; background: {bar_color_s}; border-radius: 8px;"></div>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                if sell_reasons:
+                                    for r in sell_reasons:
+                                        st.caption(f"  {r}")
+
+                        # --- Previous Session Carry-over ---
+                        prev_sessions = result.get("previous_sessions", [])
+                        if prev_sessions:
+                            st.markdown("#### Previous Session Levels (Carry-over)")
+                            for ps in reversed(prev_sessions[-3:]):
+                                pp = ps.get("profile")
+                                if not pp:
+                                    continue
+                                st.markdown(f"""
+                                <div style="background: rgba(16,24,40,0.5); border-left: 3px solid {SESSION_COLORS.get(ps['session'], '#888')};
+                                            padding: 8px 16px; margin-bottom: 8px; border-radius: 0 8px 8px 0;">
+                                    <span style="color: {SESSION_COLORS.get(ps['session'], '#888')}; font-weight: 600;">
+                                        {ps['session']} ({ps['date']})
+                                    </span>
+                                    <span style="color: #a0aec0; margin-left: 16px;">
+                                        POC: {pp['poc']:.{price_decimals}f} &nbsp;|&nbsp;
+                                        VAH: {pp['vah']:.{price_decimals}f} &nbsp;|&nbsp;
+                                        VAL: {pp['val']:.{price_decimals}f}
+                                    </span>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error(f"Error analyzing volume profile: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+
+# TAB 6: BACKTEST
+with tabs[5]:
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h3 style="color: #f8fafc; margin: 0;">🔬 Strategy Backtesting</h3>
@@ -1922,8 +2224,8 @@ with tabs[4]:
             st.success(f"Best params: RSI {best['params'].get('rsi_buy')}, ADX {best['params'].get('adx_min')}, "
                       f"R:R {best['params'].get('risk_reward')} -> PF {best['profit_factor']}, WR {best['win_rate']}%")
 
-# TAB 6: STRATEGY INTELLIGENCE
-with tabs[5]:
+# TAB 7: STRATEGY INTELLIGENCE
+with tabs[6]:
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h3 style="color: #f8fafc; margin: 0;">🎯 Strategy Intelligence</h3>
@@ -2183,8 +2485,8 @@ with tabs[5]:
     </div>
     """, unsafe_allow_html=True)
 
-# TAB 7: LEARNING DASHBOARD
-with tabs[6]:
+# TAB 8: LEARNING DASHBOARD
+with tabs[7]:
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h3 style="color: #f8fafc; margin: 0;">🤖 Self-Learning Dashboard</h3>
@@ -2681,8 +2983,8 @@ with tabs[6]:
 # Footer / Auto-Refresh handled by fragments
 
 
-# TAB 7: LEARNING
-with tabs[6]:
+# TAB 8: LEARNING (continued)
+with tabs[7]:
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h3 style="color: #f8fafc; margin: 0;">🤖 Learning Engine Stats</h3>
@@ -2775,8 +3077,8 @@ with tabs[6]:
     st.caption("Data is updated dynamically as the bot learns from closed trades.")
 
 
-# TAB 8: ECONOMIC CALENDAR
-with tabs[7]:
+# TAB 9: ECONOMIC CALENDAR
+with tabs[8]:
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h3 style="color: #f8fafc; margin: 0;">📅 Economic Calendar</h3>

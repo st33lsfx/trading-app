@@ -10,6 +10,7 @@ from mean_reversion_strategy import MeanReversionStrategy
 from hybrid_strategy import HybridStrategy
 from elite_strategy import EliteStrategy
 from elite_strategy_v2 import EliteStrategyV2
+from session_volume_profile import SessionVolumeProfile
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
@@ -159,6 +160,9 @@ class TradingBot:
         self.elite_strategy = EliteStrategy(self.strategy_config)  # Fallback
         self.hybrid_strategy = HybridStrategy(self.strategy_config)
         self.mean_reversion = self.hybrid_strategy.mean_reversion
+
+        # Session Volume Profile (v5.1)
+        self.session_vp = SessionVolumeProfile(num_bins=30, value_area_pct=0.70)
 
         self.log(f"🧠 EliteStrategy V2 (VWAP Bands + VP Regime) Initialized.")
         self.log(f"📊 Timeframe: {INTERVAL}, Period: {PERIOD}")
@@ -1302,11 +1306,32 @@ class TradingBot:
                  self.log(f"[{yf_ticker}] Skipped (RSI {rsi:.2f}): {reason}")
             
             # ========================================
+            # SESSION VOLUME PROFILE — confidence booster
+            # ========================================
+            if signal in ["BUY", "SELL"]:
+                try:
+                    svp_result = self.session_vp.analyze(df)
+                    if svp_result and svp_result.get("levels"):
+                        svp_score, svp_reasons = self.session_vp.get_signal_score(
+                            float(df.iloc[-1]["Close"]),
+                            svp_result["levels"],
+                            signal,
+                        )
+                        # Boost confidence by up to +15% based on VP alignment
+                        svp_boost = min(svp_score * 0.03, 0.15)
+                        confidence = result.get("confidence", 0) + svp_boost
+                        result["confidence"] = confidence
+                        if svp_reasons:
+                            result["reason"] = result.get("reason", "") + " | SVP: " + ", ".join(svp_reasons)
+                except Exception:
+                    pass  # SVP is supplementary, never block a trade
+
+            # ========================================
             # CONFIDENCE CHECK - Sníženo pro více obchodů
             # ========================================
             MIN_CONFIDENCE = 0.55  # Sníženo z 0.6 - více signálů projde
             confidence = result.get("confidence", 0)
-            
+
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
                 self.log(f"[{yf_ticker}] Low confidence ({confidence:.0%}), skipping")
                 return False
