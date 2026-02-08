@@ -9,6 +9,7 @@ from strategy import Strategy
 from mean_reversion_strategy import MeanReversionStrategy
 from hybrid_strategy import HybridStrategy
 from elite_strategy import EliteStrategy
+from elite_strategy_v2 import EliteStrategyV2
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
@@ -95,10 +96,11 @@ class TradingBot:
         self._thread = None
         self.max_positions = MAX_POSITIONS
 
-        # === STRATEGY SELECTION (UPDATED v3.3) ===
-        # "hybrid" = HybridStrategy (ADX Switch: Trend/Range) - DEFAULT
-        # "elite" = EliteStrategy (VWAP + VP + Confluence) - 15m
-        self.strategy_type = "hybrid"
+        # === STRATEGY SELECTION (v5.0) ===
+        # "elite_v2" = EliteStrategyV2 (VWAP Bands + VP Regime Engine) — RECOMMENDED
+        # "hybrid" = HybridStrategy (ADX Switch: Trend/Range)
+        # "elite" = EliteStrategy v1 (VWAP + VP + Confluence)
+        self.strategy_type = "elite_v2"
         
         # =====================================================
         # ELITE STRATEGY CONFIG (15m)
@@ -152,13 +154,13 @@ class TradingBot:
              # Adapt only slightly
              pass
 
-        # STRATEGY INIT
-        self.elite_strategy = EliteStrategy(self.strategy_config)
-        # Keep references for compatibility if needed
-        self.hybrid_strategy = HybridStrategy(self.strategy_config) 
+        # STRATEGY INIT (v5.0: EliteStrategyV2 is primary)
+        self.elite_strategy_v2 = EliteStrategyV2(self.strategy_config)
+        self.elite_strategy = EliteStrategy(self.strategy_config)  # Fallback
+        self.hybrid_strategy = HybridStrategy(self.strategy_config)
         self.mean_reversion = self.hybrid_strategy.mean_reversion
-        
-        self.log(f"🧠 EliteStrategy (15m VWAP+VP) Initialized.")
+
+        self.log(f"🧠 EliteStrategy V2 (VWAP Bands + VP Regime) Initialized.")
         self.log(f"📊 Timeframe: {INTERVAL}, Period: {PERIOD}")
 
         # UI & Strategy State (Initialized here for immediate access)
@@ -1249,21 +1251,25 @@ class TradingBot:
             # Detect asset class for risk profile
             asset_class = self.detect_asset_class(t212_ticker, yf_ticker)
 
-            # Vyber strategii podle nastavení - HYBRID STRATEGY přepíná automaticky
-            if self.strategy_type == "elite":
-                # === ELITE STRATEGY (15m VWAP + VP) ===
-                # Pass asset_class for volatility-appropriate SL/TP
+            # v5.0: Strategy selection — elite_v2 is primary
+            if self.strategy_type == "elite_v2":
+                # === ELITE STRATEGY V2 (VWAP Bands + VP Regime Engine) ===
+                result = self.elite_strategy_v2.get_signal(df, asset_class=asset_class)
+                signal = result.get("signal")
+                confidence = result.get("confidence", 0)
+                regime = result.get("regime", "UNKNOWN")
+                strategy_used = result.get("strategy", "ELITE_V2")
+
+            elif self.strategy_type == "elite":
+                # === ELITE STRATEGY v1 (fallback) ===
                 result = self.elite_strategy.get_signal(df, asset_class=asset_class)
                 signal = result.get("signal")
                 confidence = result.get("confidence", 0)
-                # Parse additional Elite metadata
                 regime = "TREND" if result.get("adx", 0) > 25 else "RANGING"
                 strategy_used = "ELITE_VP"
-                
+
             elif self.strategy_type == "hybrid" or self.strategy_type == "mean_reversion":
-                # === HYBRID STRATEGY (v2.0) ===
-                # Automaticky přepíná mezi Mean Reversion a Trend Following
-                # UPDATED: Pass asset_class to ensure correct risk limits in EliteStrategy
+                # === HYBRID STRATEGY ===
                 result = self.hybrid_strategy.get_signal(df, major_trend=major_trend, asset_class=asset_class)
                 signal = result.get("signal")
                 regime = result.get("regime", "UNKNOWN")
