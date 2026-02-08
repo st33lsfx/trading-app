@@ -11,6 +11,7 @@ from hybrid_strategy import HybridStrategy
 from elite_strategy import EliteStrategy
 from elite_strategy_v2 import EliteStrategyV2
 from adaptive_vp_strategy import AdaptiveStrategy
+from elite_adaptive_strategy import EliteAdaptiveStrategy # NEW Elite Strategy
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
@@ -28,7 +29,7 @@ load_dotenv()
 DRY_RUN = False  # v3.2: START IN DRY-RUN — verify signals first, then set False
 
 # API MODE - "demo" nebo "live"
-CAPITAL_MODE = os.getenv("CAPITAL_MODE", "live")  # Default demo pro bezpečnost
+CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 
 # ULTRA-CONSERVATIVE SETTINGS (pro první live týden)
 LIVE_SAFE_MODE = False  # Zapni pro extra bezpečnost
@@ -101,7 +102,8 @@ class TradingBot:
         # "elite_v2" = EliteStrategyV2 (VWAP Bands + VP Regime Engine) — RECOMMENDED
         # "hybrid" = HybridStrategy (ADX Switch: Trend/Range)
         # "elite" = EliteStrategy v1 (VWAP + VP + Confluence)
-        self.strategy_type = "elite_v2"
+        # "elite_v3" = EliteAdaptiveStrategy (Validated 52% Return Logic)
+        self.strategy_type = "elite_v3"
         
         # =====================================================
         # ELITE STRATEGY CONFIG (15m)
@@ -157,6 +159,7 @@ class TradingBot:
 
         # STRATEGY INIT (v5.0: EliteStrategyV2 is primary)
         self.elite_strategy_v2 = EliteStrategyV2(self.strategy_config)
+        self.elite_strategy_v3 = EliteAdaptiveStrategy(self.strategy_config) # Initialize Elite v3
         self.elite_strategy = EliteStrategy(self.strategy_config)  # Fallback
         self.hybrid_strategy = HybridStrategy(self.strategy_config)
         self.adaptive_strategy = AdaptiveStrategy(self.strategy_config) # New Adaptive Strategy

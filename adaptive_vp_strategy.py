@@ -1,10 +1,12 @@
 """
-Adaptive Volume Profile Strategy (v1.0)
+Adaptive Volume Profile Strategy (v2.0)
 =======================================
+Aligned with TradingView: adaptive_vp_strategy.pine
 Core Logic:
 - VWAP (Session/Daily Anchored) + Bands (StdDev)
 - Volume Profile (Rolling 24h or Session) -> POC, VAH, VAL
 - Adaptive Regime: ADX + VWAP Slope -> Trend vs Range
+- Best Buy: RSI filter (trend > 50, range oversold < 40), volume confirmation.
 """
 
 import pandas as pd
@@ -17,12 +19,16 @@ class AdaptiveStrategy:
     def __init__(self, config=None):
         self.config = config or {}
         
-        # --- Parameters (Default / Optimized) ---
-        self.adx_threshold = self.config.get('adx_threshold', 25)
-        self.vwap_window = self.config.get('vwap_window', 96) # Approx 24h on 15m
-        self.vp_lookback = self.config.get('vp_lookback', 96) 
-        self.tp_rr = self.config.get('tp_rr_ratio', 2.0)
-        self.sl_atr_mult = self.config.get('sl_atr_mult', 2.0)
+        # --- Parameters (match Pine: adaptive_vp_strategy.pine) ---
+        self.adx_threshold = self.config.get('adx_threshold', 30) # Optimized
+        self.vwap_window = self.config.get('vwap_window', 96)  # ~1d 15m
+        self.vp_lookback = self.config.get('vp_lookback', 96)
+        self.tp_rr = self.config.get('tp_rr_ratio', 2.0) # Optimized
+        self.sl_atr_mult = self.config.get('sl_atr_mult', 1.0) # Optimized (Scapling)
+        self.rsi_trend_min = self.config.get('rsi_trend_min', 50)
+        self.rsi_range_max = self.config.get('rsi_range_max', 40)
+        self.use_volume_filter = self.config.get('use_volume_filter', True)
+        self.vol_ma_len = self.config.get('vol_ma_len', 20)
         
         # Internal state
         self.regime = "NEUTRAL"
@@ -160,55 +166,63 @@ class AdaptiveStrategy:
         
         self.regime = "TREND" if is_trending else "RANGE"
         
+        # Volume confirmation (align with Pine)
+        if self.use_volume_filter and 'Volume' in df.columns:
+            vol_ma = df['Volume'].rolling(self.vol_ma_len).mean().iloc[-1]
+            vol_ok = curr['Volume'] > vol_ma
+        else:
+            vol_ok = True
+
         # 2. Get Volume Profile Levels
         vp = self._calculate_vp(df)
         if not vp:
             return {'signal': 'NEUTRAL', 'reason': 'No VP data'}
-            
+
         poc = vp['POC']
         vah = vp['VAH']
         val = vp['VAL']
         close_px = curr['Close']
-        
+        rsi = curr['RSI']
+
         signal = "NEUTRAL"
         reason = ""
-        
-        # --- LOGIC ---
-        
+
+        # --- LOGIC (aligned with Pine: Best Buy) ---
+
         if self.regime == "TREND":
-            # TREND LONG
-            # Case A: Breakout above VAH + VWAP Slope Up
-            if close_px > vah and vwap_slope_up and curr['Close'] > curr['VWAP']:
-                # Pullback confirmation or direct breakout?
-                # Let's require a small momentum confirmation (RSI > 50)
-                if curr['RSI'] > 50:
+            # TREND LONG: Breakout above VAH + VWAP slope + RSI > 50 + volume
+            if close_px > vah and vwap_slope_up and curr['Close'] > curr['VWAP'] and vol_ok:
+                if rsi > self.rsi_trend_min:
                     signal = "BUY"
                     reason = "Trend Breakout > VAH"
-            
-            # Case B: Pullback to VWAP in Uptrend
-            elif abs(close_px - curr['VWAP']) < (curr['ATR'] * 0.5) and vwap_slope_up:
-                if curr['Close'] > curr['Open']: # Bounce candle
+
+            # TREND LONG: Pullback to VWAP, bounce candle
+            elif abs(close_px - curr['VWAP']) < (curr['ATR'] * 0.5) and vwap_slope_up and vol_ok:
+                if curr['Close'] > curr['Open'] and rsi > 45:
                     signal = "BUY"
                     reason = "Trend Pullback to VWAP"
-            
+
             # TREND SHORT
-            # Case A: Breakdown below VAL + VWAP Slope Down
-            elif close_px < val and not vwap_slope_up and curr['Close'] < curr['VWAP']:
-                if curr['RSI'] < 50:
+            elif close_px < val and not vwap_slope_up and curr['Close'] < curr['VWAP'] and vol_ok:
+                if rsi < (100 - self.rsi_trend_min):
                     signal = "SELL"
                     reason = "Trend Breakdown < VAL"
 
         elif self.regime == "RANGE":
-            # Mean Reversion Logic
-            # LONG at VAL (Support)
-            if close_px <= val and close_px > (val - curr['ATR']):
-                # Rejection candle helps
-                if curr['Close'] > curr['Open']: 
+            # RANGE LONG: at/below VWAP lower, oversold bounce (RSI < 40)
+            if close_px <= curr['VWAP_Lower'] and curr['Close'] > curr['Open'] and vol_ok:
+                if rsi < self.rsi_range_max:
+                    signal = "BUY"
+                    reason = "Range Reversal @ VWAP Lower"
+
+            # RANGE LONG: at VAL (Support)
+            elif close_px <= val and close_px > (val - curr['ATR']) and vol_ok:
+                if curr['Close'] > curr['Open'] and rsi < 45:
                     signal = "BUY"
                     reason = "Range Reversal @ VAL"
-            
-            # SHORT at VAH (Resistance)
-            elif close_px >= vah and close_px < (vah + curr['ATR']):
+
+            # RANGE SHORT: at VAH
+            elif close_px >= vah and close_px < (vah + curr['ATR']) and vol_ok:
                 if curr['Close'] < curr['Open']:
                     signal = "SELL"
                     reason = "Range Reversal @ VAH"

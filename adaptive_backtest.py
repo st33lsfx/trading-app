@@ -115,11 +115,11 @@ class AdaptiveBacktester:
         """
         if self.df is None: self.fetch_data()
         
-        # Grid to search
+        # Grid to search (Widened Range for Optimization)
         param_grid = {
-            'adx_threshold': [20, 25, 30],
-            'sl_atr_mult': [1.5, 2.0, 2.5],
-            'tp_rr_ratio': [1.5, 2.0]
+            'adx_threshold': [15, 20, 25, 30, 40],
+            'sl_atr_mult': [1.0, 1.5, 2.0, 3.0, 4.0],
+            'tp_rr_ratio': [1.5, 2.0, 3.0]
         }
         keys, values = zip(*param_grid.items())
         combinations = [dict(zip(keys, v)) for v in product(*values)]
