@@ -1280,12 +1280,21 @@ class TradingBot:
                 regime = result.get("regime", "UNKNOWN")
                 strategy_used = result.get("strategy", "HYBRID_AUTO")
 
-            elif self.strategy_type == "adaptive" or self.strategy_type == "adaptive_vp":
-                # === ADAPTIVE VP STRATEGY (Session VP + VWAP) ===
                 result = self.adaptive_strategy.get_signal(df)
                 signal = result.get("signal")
                 regime = result.get("regime", "UNKNOWN")
                 strategy_used = "ADAPTIVE_VP"
+
+            elif self.strategy_type == "elite_v3":
+                # === ELITE ADAPTIVE STRATEGY (v3.0) ===
+                result = self.elite_strategy_v3.get_signal(df)
+                signal = result.get("signal")
+                confidence = 0.8 # Static confidence for now
+                regime = result.get("regime", "UNKNOWN")
+                strategy_used = "ELITE_V3"
+                # Map reason/sl/tp for later logging
+                # Bot expects result to be used later? 
+                # Actually bot uses 'result' variable later for logging, so we are good.
             else:
                 df = strategy.calculate_indicators(df)
                 result = strategy.get_signal(df, self.strategy_config)

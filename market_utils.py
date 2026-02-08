@@ -65,7 +65,16 @@ def is_market_open(exchange_data):
     if 'LSE' in name or 'LONDON' in name or 'UK' in name:
         return eu_open <= now_utc <= eu_close
 
-    # Default to assuming closed if unknown for safety, or open if you want to risk it.
+    # Crypto is always open
+    if 'BINANCE' in name or 'CRYPTO' in name or 'COINBASE' in name:
+        return True
+
+    # Fallback for known crypto tickers if exchange name is generic
+    # This function receives exchange_data, not ticker. 
+    # But if exchange name is unknown, we might default to True if we are aggressive? 
+    # Or False for safety. Current was False.
+    
+    # If using Capital.com, exchange names might be specific.
     return False
 
 def map_ticker_to_yf(t212_ticker):
