@@ -23,16 +23,16 @@ load_dotenv()
 # BEZPEČNOSTNÍ NASTAVENÍ PRO MALÝ ÚČET (2000-3000 Kč)
 
 # MODE TOGGLE
-DRY_RUN = True   # v3.2: START IN DRY-RUN — verify signals first, then set False
+DRY_RUN = False  # v3.2: START IN DRY-RUN — verify signals first, then set False
 
 # API MODE - "demo" nebo "live"
-CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
+CAPITAL_MODE = os.getenv("CAPITAL_MODE", "live")  # Default demo pro bezpečnost
 
 # ULTRA-CONSERVATIVE SETTINGS (pro první live týden)
-LIVE_SAFE_MODE = True  # Zapni pro extra bezpečnost
+LIVE_SAFE_MODE = False  # Zapni pro extra bezpečnost
 
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 3          # v3.2: Sníženo z 4 na 3 pro bezpečnost
+    MAX_POSITIONS = 4          # v3.2: Sníženo z 4 na 3 pro bezpečnost
     TRADE_AMOUNT_CZK = 200     # ~$7 per trade
     MAX_RISK_PCT = 0.002       # v3.2: START at 0.2% (ramps up after 20 trades)
 else:
