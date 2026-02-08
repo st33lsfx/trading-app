@@ -50,11 +50,23 @@ class AdaptiveStrategy:
 
     def _calculate_vp(self, df):
         """
-        Calculates Volume Profile for the last N candles.
+        Calculates Session Volume Profile (Anchored to today's open).
         Returns: POC, VAH (70%), VAL (70%)
         """
-        subset = df.tail(self.vp_lookback)
-        if len(subset) < 10: return None
+        # Identify start of the current session (Daily Open)
+        # Assuming df has DatetimeIndex
+        current_time = df.index[-1]
+        
+        # Filter data for the current day only (Session Start)
+        # Note: For Crypto (24h), this is 00:00 UTC usually. 
+        # For Forex/Stocks, this should be adjusted to market open if needed.
+        # Here we assume 00:00 local/UTC as per data index.
+        current_day = current_time.date()
+        subset = df[df.index.date == current_day]
+        
+        if len(subset) < 5: 
+            # Fallback if just started day: use last 24h rolling
+            subset = df.tail(self.vp_lookback)
         
         price_min = subset['Low'].min()
         price_max = subset['High'].max()

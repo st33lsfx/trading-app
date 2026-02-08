@@ -10,6 +10,7 @@ from mean_reversion_strategy import MeanReversionStrategy
 from hybrid_strategy import HybridStrategy
 from elite_strategy import EliteStrategy
 from elite_strategy_v2 import EliteStrategyV2
+from adaptive_vp_strategy import AdaptiveStrategy
 from market_utils import is_market_open, map_ticker_to_yf
 from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
@@ -158,9 +159,10 @@ class TradingBot:
         self.elite_strategy_v2 = EliteStrategyV2(self.strategy_config)
         self.elite_strategy = EliteStrategy(self.strategy_config)  # Fallback
         self.hybrid_strategy = HybridStrategy(self.strategy_config)
+        self.adaptive_strategy = AdaptiveStrategy(self.strategy_config) # New Adaptive Strategy
         self.mean_reversion = self.hybrid_strategy.mean_reversion
 
-        self.log(f"🧠 EliteStrategy V2 (VWAP Bands + VP Regime) Initialized.")
+        self.log(f"🧠 Strategy Initialized: {self.strategy_type}")
         self.log(f"📊 Timeframe: {INTERVAL}, Period: {PERIOD}")
 
         # UI & Strategy State (Initialized here for immediate access)
@@ -1274,6 +1276,13 @@ class TradingBot:
                 signal = result.get("signal")
                 regime = result.get("regime", "UNKNOWN")
                 strategy_used = result.get("strategy", "HYBRID_AUTO")
+
+            elif self.strategy_type == "adaptive" or self.strategy_type == "adaptive_vp":
+                # === ADAPTIVE VP STRATEGY (Session VP + VWAP) ===
+                result = self.adaptive_strategy.get_signal(df)
+                signal = result.get("signal")
+                regime = result.get("regime", "UNKNOWN")
+                strategy_used = "ADAPTIVE_VP"
             else:
                 df = strategy.calculate_indicators(df)
                 result = strategy.get_signal(df, self.strategy_config)
