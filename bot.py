@@ -104,20 +104,20 @@ class TradingBot:
         # ELITE STRATEGY CONFIG (15m)
         # =====================================================
         self.strategy_config = {
-            "rsi_buy": 60,               # Higher drift allowed in trends
+            "rsi_buy": 60,
             "rsi_oversold": 40,
             "rsi_sell": 40,
             "rsi_overbought": 60,
-            "adx_min": 25,               # Strong trend only
-            "risk_reward": 2.0,          # R:R 2.0 minimum
-            "atr_sl_mult": 3.0,          # Base ATR mult (overridden per asset class)
+            "adx_min": 22,               # v5.0: Wider ADX range (was 25) — more trend signals
+            "risk_reward": 1.3,          # v5.0: R:R 1.3 minimum (was 2.0)
+            "atr_sl_mult": 4.0,          # v5.0: Base ATR mult (was 3.0, overridden per asset class)
             "max_risk_pct": MAX_RISK_PCT,
-            "min_rr_ratio": 2.0,
+            "min_rr_ratio": 1.3,         # v5.0: was 2.0 — allow wider SLs with lower R:R
             "st_period": 10,
             "st_multiplier": 3.0,
             "hma_fast": 9,
             "hma_slow": 21,
-            "min_confluence": 3,         # Relaxed: 3 indicators (was 4) for more viable trades
+            "min_confluence": 3,         # v5.0: 3 indicators (VP + 2 others)
         }
         
         # === HIGH VOLUME SETTINGS ===
@@ -136,16 +136,15 @@ class TradingBot:
         self.smart_analyst = get_smart_analyst()
         self.telegram = get_telegram_notifier()
         
-        self.trade_amount = 250.0   # v4.0: Target Risk per trade (CZK)
-        # self.trade_amount = 1000.0 # OLD: Margin amount
-        
-        # Risk Management (v4.0 Update)
+        self.trade_amount = 250.0   # v5.0: Target Risk per trade (CZK) — FIXED, not overridden
+
+        # Risk Management (v5.0 Update — PROFIT OPTIMIZATION)
         self.dry_run = getattr(self, "dry_run", DRY_RUN)
-        self.max_risk_pct = 0.20 # v4.0: Max risk 20% equity to allow min crypto size
-        
-        # Daily Limits (v4.0)
-        self.daily_profit_target = 400.0  # CZK (Stop trading if hit)
-        self.max_daily_loss = 150.0       # CZK (Stop trading if hit)
+        self.max_risk_pct = 0.30 # v5.0: Max risk 30% equity to allow crypto min sizes (BTC 0.01)
+
+        # Daily Limits (v5.0 — FINAL, NOT OVERRIDDEN BELOW)
+        self.daily_profit_target = 400.0  # CZK — Stop trading for the day when hit
+        self.max_daily_loss = 100.0       # CZK — Stop trading, protect from minus day
         self.daily_pnl = 0.0
         self.daily_reset_date = date.today().isoformat()
         self.session_stopped_reason = None # "daily_loss", "profit_target", "drawdown"
@@ -212,16 +211,13 @@ class TradingBot:
         # Potřeba: ~4.5% denně = ~$3.50/den při $80 kapitálu
         # S pákou 1:20 = potřeba ~0.23% pohyb na obchod
 
-        self.daily_pnl = 0.0
-        self.daily_reset_date = date.today().isoformat()
-        self.max_daily_loss = 30.0     # CZK – max 1.5% denní ztráta (1.5% z 2000 Kč)
-        self.daily_profit_target = 50.0 # CZK – realistický denní cíl (2.5% z 2000 Kč)
-        self.session_stopped_reason = None
+        # v5.0: Daily limits are set ABOVE (lines ~147-151). DO NOT overwrite here!
+        # self.daily_pnl, daily_reset_date, session_stopped_reason already set above.
         self._daily_pnl_lock = threading.Lock()
 
-        # Position sizing
-        self.margin_usage_pct = 0.40  # 40% marginu
-        self.max_positions = MAX_POSITIONS  # OPRAVA: Použij globální konstantu (2 v SAFE MODE)
+        # Position sizing (v5.0)
+        self.margin_usage_pct = 0.50  # v5.0: 50% marginu (was 40%)
+        self.max_positions = MAX_POSITIONS
 
         # Kelly Criterion - based on realistic backtest (45% WR)
         self.kelly_win_rate = 0.45    # 45% WR z backtestu (realistické)
@@ -229,9 +225,9 @@ class TradingBot:
         self.kelly_avg_loss = 1.0
         self.kelly_fraction = 0.25    # 25% Kelly (konzervativní)
 
-        # Correlation filter - povolit více pozic
-        self.max_forex_positions = 2
-        self.max_crypto_positions = 3  # Více crypto (nejvíc trades)
+        # Correlation filter (v5.0: prioritize crypto for bigger moves)
+        self.max_forex_positions = 3   # v5.0: was 2
+        self.max_crypto_positions = 4  # v5.0: was 3 — crypto = main profit source
         self.max_stock_positions = 1
 
         # Drawdown protection (v3.2: tiered alerts)
@@ -240,8 +236,8 @@ class TradingBot:
         self.initial_balance = None
         self._drawdown_alerted = False  # Track if alert already sent
 
-        # Spread filter - přísnější
-        self.max_spread_pct = 0.10    # Max 0.1% spread
+        # Spread filter (v5.0: relaxed for crypto)
+        self.max_spread_pct = 0.25    # v5.0: Max 0.25% spread (was 0.10 — too strict for crypto)
 
         # Trade tracking
         self.session_trades = []
@@ -379,12 +375,14 @@ class TradingBot:
             if balance <= 0:
                 return
                 
-            # === BASE COMPOUND ===
+            # === BASE COMPOUND (v5.0: Higher base for real profits) ===
             growth_factor = balance / self.base_capital
             base_trade_amount = min(
                 available * self.margin_usage_pct / self.max_positions,
-                balance * 0.08  # Max 8% účtu per trade
+                balance * 0.15  # v5.0: Max 15% účtu per trade (was 8%)
             )
+            # v5.0: Never go below 250 CZK target
+            base_trade_amount = max(250.0, base_trade_amount)
             
             # === STREAK ADJUSTMENT ===
             # Track wins/losses
@@ -420,9 +418,9 @@ class TradingBot:
             # Apply streak adjustment
             adjusted_amount = base_trade_amount * streak_multiplier
 
-            # Clamp to safe limits IN CZK (account currency)
-            # Min 50 CZK (~$2), Max 500 CZK (~$20) per trade margin
-            self.trade_amount = max(50.0, min(500.0, adjusted_amount))
+            # v5.0: Clamp — min 250 CZK (target risk), max 800 CZK
+            # Never go below 250 CZK to maintain meaningful position sizes
+            self.trade_amount = max(250.0, min(800.0, adjusted_amount))
 
             if growth_factor > 1.1:
                 self.log(f"📈 COMPOUND: Balance ${balance:.2f} (+{(growth_factor-1)*100:.0f}%), Trade: ${self.trade_amount:.2f} (x{streak_multiplier:.2f})")
@@ -704,10 +702,7 @@ class TradingBot:
             if equity <= 0:
                 return 0
 
-            # v3.2: Use ramp-up risk % instead of fixed MAX_RISK_PCT
-            risk_pct = self.get_current_risk_pct()
-            risk_amount_czk = equity * risk_pct
-
+            # v5.0: CLEAN SIZING — target CZK risk directly
             # Conversion: most assets priced in USD
             FX_USD_CZK = 24.0
             FX_EUR_CZK = 26.0
@@ -717,36 +712,20 @@ class TradingBot:
             else:
                 conversion = FX_USD_CZK
 
-            # SL distance is in asset price units (e.g., $475 for BTC, 0.0054 for EURUSD)
-            risk_per_unit = sl_distance * conversion  # CZK per unit of SL
+            # SL distance is in asset price units (e.g., $1900 for BTC, 0.0063 for EURUSD)
+            risk_per_unit = sl_distance * conversion  # CZK risk per 1 unit of instrument
 
             if risk_per_unit <= 0:
                 return 0
 
-            # v4.0: Sizing based on TARGET RISK AMOUNT (250 CZK)
-            # We ignore 'risk_pct' ramp-up for now to prioritize bigger sizing.
-            # But we respect the 100 CZK ramp-up for first 10 trades.
-            target_risk_czk = self.trade_amount # 250 CZK
-            
-            if self._total_live_trades < 10:
-                 target_risk_czk = 100.0 # Safer start
-            
-            # SL distance is in asset price units (e.g., $475 for BTC, 0.0054 for EURUSD)
-            # risk_per_unit = sl_distance * conversion # ALREADY CALCULATED ABOVE?
-            # Wait, line 721 calculates risk_per_unit.
-            # I should reuse it or ensure I don't shadow/duplicate incorrectly.
-            # The previous code calculated risk_per_unit at line 721.
-            # My inserted code (726+) re-implementation calculates it again? 
-            # Let's look at lines 734-735 in the bad file.
-            # 735: risk_per_unit = sl_distance * conversion
-            # Yes, duplicate. I should remove the duplicate calculation if 721 exists.
-            
-            # But wait, 721 uses 'sl_distance' and 'conversion'.
-            # My inserted code also uses them.
-            # I will just indent my code and maybe remove the duplicate if it's identical.
-            # Removing duplicate 734-738.
-            
-            # Position size needed to risk exactly 'target_risk_czk'
+            # v5.0: Target risk = trade_amount (250 CZK), safe start 100 CZK
+            target_risk_czk = self.trade_amount  # 250 CZK
+
+            if getattr(self, '_total_live_trades', 0) < 10:
+                target_risk_czk = 100.0  # Safe start: 100 CZK for first 10 trades
+                self.log(f"🛡️ Safe start: Using 100 CZK risk (trade #{self._total_live_trades + 1}/10)")
+
+            # Position size to risk exactly target_risk_czk on SL hit
             raw_qty = target_risk_czk / risk_per_unit
 
             # Get broker constraints
@@ -1811,6 +1790,11 @@ class TradingBot:
         # Record closed trades for learning (every cycle)
         self.record_closed_trades()
 
+        # === v5.0: DAILY P&L LOGGING ===
+        daily_pnl = getattr(self, 'daily_pnl', 0)
+        pnl_emoji = "📈" if daily_pnl >= 0 else "📉"
+        self.log(f"{pnl_emoji} Denní P&L: {daily_pnl:+.2f} CZK | Cíl: +{self.daily_profit_target:.0f} | Limit: -{self.max_daily_loss:.0f}")
+
         # === v3.2: AUTO-PAUSE CHECK ===
         if getattr(self, '_auto_paused', False):
             self.log(f"🛑 AUTO-PAUSED: {self._consecutive_losses} consecutive losses. Resume manually.")
@@ -1824,13 +1808,13 @@ class TradingBot:
             return
 
         if self.session_stopped_reason == "daily_loss":
-            self.log(f"[SESSION] Daily loss limit reached (PnL: {getattr(self, 'daily_pnl', 0):.2f}). No new trades today.")
+            self.log(f"🛑 Denní P&L: {daily_pnl:+.2f} CZK — DAILY LOSS LIMIT hit (-{self.max_daily_loss:.0f}). Stop na den.")
             return
         if self.session_stopped_reason == "profit_target":
-            self.log(f"[SESSION] Daily profit target hit (PnL: {getattr(self, 'daily_pnl', 0):.2f}). No new trades.")
+            self.log(f"✅ Denní P&L: {daily_pnl:+.2f} CZK — PROFIT TARGET dosažen (+{self.daily_profit_target:.0f}). Stop na den!")
             return
         if self.session_stopped_reason == "drawdown":
-            self.log(f"[SESSION] Emergency drawdown stop active.")
+            self.log(f"🛑 Emergency drawdown stop active.")
             return
 
         if not self.open_instruments:
@@ -1857,18 +1841,18 @@ class TradingBot:
 
     def monitor_positions(self):
         """
-        v3.2: Advanced position management with tiered partials + adaptive trailing.
+        v5.0: Aggressive position management for daily profit guarantee.
 
         Partial Close Schedule:
-        - At 1.5R: Close 40% (lock quick profit)
-        - At 2.0R: Close 30% (secure more)
-        - Rest trails with Supertrend + ATR buffer
+        - At 1.0R: Close 60% (lock quick profit EARLY)
+        - At 1.5R: Close 50% of remaining
+        - Rest trails aggressively
 
         Trailing Stop:
-        - At 1.0R: Move SL to breakeven
-        - At 1.5R: Lock 0.5R profit
-        - At 2.0R: Lock 1.0R profit
-        - At 3.0R+: Lock 1.5R profit
+        - At 0.5R: Move SL to breakeven (EARLIER than before)
+        - At 1.0R: Lock 0.3R profit
+        - At 1.5R: Lock 0.8R profit
+        - At 2.0R+: Lock 1.2R profit
         """
         if self.broker != "capital":
             return
@@ -1921,30 +1905,30 @@ class TradingBot:
                         self._partial_stages[deal_id] = set()
                     stages_done = self._partial_stages[deal_id]
 
-                    # === TIERED PARTIAL CLOSES (v3.2) ===
-                    # Stage 1: At 1.5R -> Close 40%
-                    if profit_dist >= (one_r * 1.5) and 'P1' not in stages_done:
-                        partial_size = round(current_size * 0.40, 2)
+                    # === TIERED PARTIAL CLOSES (v5.0 — AGGRESSIVE EARLY LOCK) ===
+                    # Stage 1: At 1.0R -> Close 60% (lock profit FAST)
+                    if profit_dist >= (one_r * 1.0) and 'P1' not in stages_done:
+                        partial_size = round(current_size * 0.60, 2)
                         if partial_size > 0:
-                            self.log(f"💰 PARTIAL-1: {epic} @ 1.5R — closing 40% ({partial_size})")
+                            self.log(f"💰 PARTIAL-1: {epic} @ 1.0R — closing 60% ({partial_size})")
                             result = self.client.reduce_position(deal_id, partial_size)
                             if result:
                                 stages_done.add('P1')
                                 if hasattr(self, 'telegram') and self.telegram.enabled:
                                     pnl_est = partial_size * profit_dist
-                                    self.telegram.notify_close(epic, pnl_est, "Partial-1 @ 1.5R (40%)")
+                                    self.telegram.notify_close(epic, pnl_est, "Partial-1 @ 1.0R (60%)")
 
-                    # Stage 2: At 2.0R -> Close 30% of REMAINING
-                    elif profit_dist >= (one_r * 2.0) and 'P2' not in stages_done and 'P1' in stages_done:
-                        partial_size = round(current_size * 0.50, 2)  # 50% of remaining ≈ 30% original
+                    # Stage 2: At 1.5R -> Close 50% of REMAINING
+                    elif profit_dist >= (one_r * 1.5) and 'P2' not in stages_done and 'P1' in stages_done:
+                        partial_size = round(current_size * 0.50, 2)  # 50% of remaining ≈ 20% original
                         if partial_size > 0:
-                            self.log(f"💰 PARTIAL-2: {epic} @ 2.0R — closing 50% remaining ({partial_size})")
+                            self.log(f"💰 PARTIAL-2: {epic} @ 1.5R — closing 50% remaining ({partial_size})")
                             result = self.client.reduce_position(deal_id, partial_size)
                             if result:
                                 stages_done.add('P2')
                                 if hasattr(self, 'telegram') and self.telegram.enabled:
                                     pnl_est = partial_size * profit_dist
-                                    self.telegram.notify_close(epic, pnl_est, "Partial-2 @ 2.0R")
+                                    self.telegram.notify_close(epic, pnl_est, "Partial-2 @ 1.5R")
 
                     # === ADAPTIVE TRAILING STOP (v3.2) ===
                     new_sl = None
@@ -1962,33 +1946,34 @@ class TradingBot:
                         else:
                             return current_sl is None or current_sl > desired
 
-                    # Level 4: Profit > 3.0R -> Lock 1.5R
-                    if profit_dist > (one_r * 3.0):
-                        desired = get_lock_sl(1.5)
+                    # === ADAPTIVE TRAILING (v5.0 — AGGRESSIVE PROFIT LOCK) ===
+                    # Level 4: Profit > 2.0R -> Lock 1.2R
+                    if profit_dist > (one_r * 2.0):
+                        desired = get_lock_sl(1.2)
                         if sl_should_update(desired):
                             new_sl = desired
-                            reason = "Trail L4: Lock 1.5R"
+                            reason = "Trail L4: Lock 1.2R"
 
-                    # Level 3: Profit > 2.0R -> Lock 1.0R
-                    elif profit_dist > (one_r * 2.0):
-                        desired = get_lock_sl(1.0)
-                        if sl_should_update(desired):
-                            new_sl = desired
-                            reason = "Trail L3: Lock 1.0R"
-
-                    # Level 2: Profit > 1.5R -> Lock 0.5R
+                    # Level 3: Profit > 1.5R -> Lock 0.8R
                     elif profit_dist > (one_r * 1.5):
-                        desired = get_lock_sl(0.5)
+                        desired = get_lock_sl(0.8)
                         if sl_should_update(desired):
                             new_sl = desired
-                            reason = "Trail L2: Lock 0.5R"
+                            reason = "Trail L3: Lock 0.8R"
 
-                    # Level 1: Profit > 1.0R -> Breakeven
-                    elif profit_dist > one_r:
+                    # Level 2: Profit > 1.0R -> Lock 0.3R
+                    elif profit_dist > (one_r * 1.0):
+                        desired = get_lock_sl(0.3)
+                        if sl_should_update(desired):
+                            new_sl = desired
+                            reason = "Trail L2: Lock 0.3R"
+
+                    # Level 1: Profit > 0.5R -> Breakeven (EARLIER)
+                    elif profit_dist > (one_r * 0.5):
                         desired = entry_level
                         if sl_should_update(desired):
                             new_sl = desired
-                            reason = "Trail L1: Breakeven"
+                            reason = "Trail L1: Breakeven @ 0.5R"
 
                     # Execute SL Update
                     if new_sl:

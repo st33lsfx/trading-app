@@ -38,28 +38,28 @@ class EliteStrategy:
     - Adaptive trailing + partial close support
     """
 
-    # === ASSET CLASS RISK PROFILES (v4.0 - Profit Optimization) ===
+    # === ASSET CLASS RISK PROFILES (v5.0 - PROFIT MAXIMIZATION) ===
     RISK_PROFILES = {
         "crypto": {
-            "atr_sl_mult": 7.0,       # v4.0: Widest SL (was 5.0) — survive random wicks
-            "atr_tp_mult": 12.0,      # v4.0: TP at 12× ATR (was 10.0) — maximize wins
-            "min_sl_pct": 0.02,       # v4.0: Min 2.0% SL (ensure space)
-            "max_sl_pct": 0.08,       # Maximum 8% SL distance
-            "min_rr": 1.5,            # v4.0: Lower R:R req (1.5) to allow wider SLs
+            "atr_sl_mult": 8.0,       # v5.0: Widest SL (was 7.0) — survive wicks + noise
+            "atr_tp_mult": 14.0,      # v5.0: TP at 14× ATR — let winners run
+            "min_sl_pct": 0.025,      # v5.0: Min 2.5% SL (was 2.0%)
+            "max_sl_pct": 0.10,       # v5.0: Maximum 10% SL distance (was 8%)
+            "min_rr": 1.3,            # v5.0: Lower R:R (1.3) to allow wider SLs with more trades
         },
         "forex": {
-            "atr_sl_mult": 3.5,       # v4.0: Wider SL (was 2.5)
-            "atr_tp_mult": 6.0,       # v4.0: TP at 6.0× ATR
-            "min_sl_pct": 0.006,      # v4.0: Min 0.6% SL (≈60 pips on majors)
-            "max_sl_pct": 0.03,       # Maximum 3.0%
-            "min_rr": 1.5,            # v4.0: Lower R:R req
+            "atr_sl_mult": 4.0,       # v5.0: Wider SL (was 3.5)
+            "atr_tp_mult": 7.0,       # v5.0: TP at 7.0× ATR (was 6.0)
+            "min_sl_pct": 0.008,      # v5.0: Min 0.8% SL (was 0.6%) ≈80 pips on majors
+            "max_sl_pct": 0.04,       # v5.0: Maximum 4.0% (was 3.0%)
+            "min_rr": 1.3,            # v5.0: Lower R:R for more trades
         },
         "default": {
-            "atr_sl_mult": 4.0,
-            "atr_tp_mult": 7.0,
-            "min_sl_pct": 0.01,
-            "max_sl_pct": 0.05,
-            "min_rr": 1.5,
+            "atr_sl_mult": 5.0,       # v5.0: was 4.0
+            "atr_tp_mult": 9.0,       # v5.0: was 7.0
+            "min_sl_pct": 0.012,      # v5.0: was 1.0%
+            "max_sl_pct": 0.06,       # v5.0: was 5.0%
+            "min_rr": 1.3,
         }
     }
 
@@ -87,10 +87,10 @@ class EliteStrategy:
         self.psar_step = 0.02
         self.psar_max = 0.2
 
-        # === RISK MANAGEMENT ===
-        self.min_rr_ratio = self.config.get('min_rr_ratio', 2.0)
-        self.min_confluence = self.config.get('min_confluence', 4)  # VP + 3 others
-        self.atr_sl_mult = self.config.get('atr_sl_mult', 2.0)  # Base fallback (overridden by asset class)
+        # === RISK MANAGEMENT (v5.0) ===
+        self.min_rr_ratio = self.config.get('min_rr_ratio', 1.3)  # v5.0: was 2.0
+        self.min_confluence = self.config.get('min_confluence', 3)  # v5.0: VP + 2 others
+        self.atr_sl_mult = self.config.get('atr_sl_mult', 4.0)  # v5.0: Base fallback (overridden by asset class)
 
         # Internal state
         self._has_real_vwap = False
@@ -459,7 +459,7 @@ class EliteStrategy:
 
         tools.append("VolProfile")
 
-        req_score = 3
+        req_score = 3  # v5.0: Relaxed to 3 (VP + 2 others minimum)
 
         if score < req_score:
              return {

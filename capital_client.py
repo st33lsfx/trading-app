@@ -204,14 +204,14 @@ class CapitalClient:
             "trailingStop": trailing_stop
         }
 
-        # Asset-class-aware minimum SL/TP distances
+        # Asset-class-aware minimum SL/TP distances (v5.0: match elite_strategy.py)
         asset_class = self._detect_asset_class(epic)
         MIN_SL_PCT = {
-            "crypto": 0.02,    # v4.0: Min 2.0% SL (was 1.5%) — match Strategy
-            "forex": 0.006,    # v4.0: Min 0.6% SL (was 0.4%) — match Strategy
-            "default": 0.01,   # v4.0: Min 1.0% SL
+            "crypto": 0.025,   # v5.0: Min 2.5% SL — match strategy (was 2.0%)
+            "forex": 0.008,    # v5.0: Min 0.8% SL — match strategy (was 0.6%)
+            "default": 0.012,  # v5.0: Min 1.2% SL (was 1.0%)
         }
-        MIN_RR = 1.5  # v4.0: Lower R:R to 1.5 to allow wider SLs (was 2.0)
+        MIN_RR = 1.3  # v5.0: Lower R:R to 1.3 (was 1.5) — allow wider SLs with more trade opportunities
 
         # Get current price to validate SL/TP direction
         try:
