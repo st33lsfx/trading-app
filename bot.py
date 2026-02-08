@@ -130,6 +130,12 @@ class TradingBot:
         # Bot se učí z vlastních obchodů a automaticky optimalizuje
         self.learning_engine = get_learning_engine(use_supabase=True)
         
+        # Get learned parameters (or use defaults)
+        learned = self.learning_engine.get_learned_params()
+        
+        self.smart_analyst = get_smart_analyst()
+        self.telegram = get_telegram_notifier()
+        
         self.trade_amount = 250.0   # v4.0: Target Risk per trade (CZK)
         # self.trade_amount = 1000.0 # OLD: Margin amount
         
@@ -717,39 +723,48 @@ class TradingBot:
             if risk_per_unit <= 0:
                 return 0
 
-        # v4.0: Sizing based on TARGET RISK AMOUNT (250 CZK)
-        # We ignore 'risk_pct' ramp-up for now to prioritize bigger sizing.
-        # But we respect the 100 CZK ramp-up for first 10 trades.
-        target_risk_czk = self.trade_amount # 250 CZK
-        
-        if self._total_live_trades < 10:
-             target_risk_czk = 100.0 # Safer start
-        
-        # SL distance is in asset price units (e.g., $475 for BTC, 0.0054 for EURUSD)
-        risk_per_unit = sl_distance * conversion  # CZK per unit of SL
+            # v4.0: Sizing based on TARGET RISK AMOUNT (250 CZK)
+            # We ignore 'risk_pct' ramp-up for now to prioritize bigger sizing.
+            # But we respect the 100 CZK ramp-up for first 10 trades.
+            target_risk_czk = self.trade_amount # 250 CZK
+            
+            if self._total_live_trades < 10:
+                 target_risk_czk = 100.0 # Safer start
+            
+            # SL distance is in asset price units (e.g., $475 for BTC, 0.0054 for EURUSD)
+            # risk_per_unit = sl_distance * conversion # ALREADY CALCULATED ABOVE?
+            # Wait, line 721 calculates risk_per_unit.
+            # I should reuse it or ensure I don't shadow/duplicate incorrectly.
+            # The previous code calculated risk_per_unit at line 721.
+            # My inserted code (726+) re-implementation calculates it again? 
+            # Let's look at lines 734-735 in the bad file.
+            # 735: risk_per_unit = sl_distance * conversion
+            # Yes, duplicate. I should remove the duplicate calculation if 721 exists.
+            
+            # But wait, 721 uses 'sl_distance' and 'conversion'.
+            # My inserted code also uses them.
+            # I will just indent my code and maybe remove the duplicate if it's identical.
+            # Removing duplicate 734-738.
+            
+            # Position size needed to risk exactly 'target_risk_czk'
+            raw_qty = target_risk_czk / risk_per_unit
 
-        if risk_per_unit <= 0:
-            return 0
+            # Get broker constraints
+            inst_info = self.client.get_instrument_info(epic)
+            min_size = inst_info.get('min_size', 0.01)
+            max_size = inst_info.get('max_size', 100000)
 
-        # Position size needed to risk exactly 'target_risk_czk'
-        raw_qty = target_risk_czk / risk_per_unit
+            if raw_qty < min_size:
+                # Check if min size risk is acceptable (max 20% of equity - bumped for crypto)
+                min_risk_czk = min_size * sl_distance * conversion
+                max_acceptable = equity * self.max_risk_pct  
+                if min_risk_czk > max_acceptable:
+                    self.log(f"⚠️ SKIP {epic}: Min size risk {min_risk_czk:.0f} CZK > {self.max_risk_pct*100:.0f}% equity ({max_acceptable:.0f} CZK)")
+                    return 0
+                raw_qty = min_size
+                self.log(f"📐 {epic}: Using min size {min_size} (risk: {min_risk_czk:.1f} CZK)")
 
-        # Get broker constraints
-        inst_info = self.client.get_instrument_info(epic)
-        min_size = inst_info.get('min_size', 0.01)
-        max_size = inst_info.get('max_size', 100000)
-
-        if raw_qty < min_size:
-            # Check if min size risk is acceptable (max 15% of equity)
-            min_risk_czk = min_size * sl_distance * conversion
-            max_acceptable = equity * self.max_risk_pct  # 15% equity cap
-            if min_risk_czk > max_acceptable:
-                self.log(f"⚠️ SKIP {epic}: Min size risk {min_risk_czk:.0f} CZK > 15% equity ({max_acceptable:.0f} CZK)")
-                return 0
-            raw_qty = min_size
-            self.log(f"📐 {epic}: Using min size {min_size} (risk: {min_risk_czk:.1f} CZK)")
-
-        # Round down to step
+            # Round down to step
             step = inst_info.get('step', 0.01)
             if step and step > 0:
                 import math
