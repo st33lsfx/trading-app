@@ -199,7 +199,7 @@ class EliteAdaptiveStrategy:
         val = vp['VAL']
         
         signal = "NEUTRAL"
-        reason = ""
+        reason = "No Setup" # Default reason
         setup_type = "" # 'Breakout', 'Pullback', 'MeanReversion'
         
         # Helper: Relative Volume check (Volume > MA)
@@ -308,7 +308,13 @@ class EliteAdaptiveStrategy:
 
         # --- RISK MANAGEMENT (SL/TP) ---
         if signal == "NEUTRAL":
-            return {'signal': 'NEUTRAL', 'reason': reason}
+            return {
+                'signal': 'NEUTRAL', 
+                'reason': reason,
+                'rsi': float(curr['RSI']),
+                'adx': float(curr['ADX']),
+                'regime': self.last_regime
+            }
             
         sl_price = 0.0
         tp_price = 0.0
@@ -350,8 +356,9 @@ class EliteAdaptiveStrategy:
             'tp': float(tp_price),
             'reason': reason,
             'setup': setup_type,
-            'setup': setup_type,
             'regime': self.last_regime,
             'confidence': confidence,
+            'rsi': float(curr['RSI']),
+            'adx': float(curr['ADX']),
             'vp': vp
         }
