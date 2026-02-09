@@ -192,10 +192,14 @@ class RobustBacktester:
                     close_px = curr['Close']
                     ema200 = curr['EMA_200']
                     
+                    # Helper: DI Direction Confirmation
+                    di_bullish = curr['DIP'] > curr['DIM']
+                    di_bearish = curr['DIM'] > curr['DIP']
+
                     # TREND
                     if is_trend:
                         # BUY
-                        if close_px > ema200 and close_px > vwap:
+                        if close_px > ema200 and close_px > vwap and di_bullish:
                             # Breakout > VAH
                             if prev['Close'] < vah and curr['Close'] > vah:
                                 sig = 'BUY'
@@ -203,7 +207,7 @@ class RobustBacktester:
                             elif abs(curr['Low'] - vwap) < (curr['ATR']*0.5) and curr['Close'] > curr['Open']:
                                 sig = 'BUY'
                         # SELL
-                        elif close_px < ema200 and close_px < vwap:
+                        elif close_px < ema200 and close_px < vwap and di_bearish:
                             # Breakdown < VAL
                             if prev['Close'] > val and curr['Close'] < val:
                                 sig = 'SELL'
@@ -211,14 +215,18 @@ class RobustBacktester:
                             elif abs(curr['High'] - vwap) < (curr['ATR']*0.5) and curr['Close'] < curr['Open']:
                                 sig = 'SELL'
                     
-                    # RANGE (Mean Reversion)
-                    else:
+                    # RANGE (Mean Reversion) - Strict ADX < 18
+                    elif adx < 18:
                         # Buy at VAL
-                        if abs(curr['Low'] - val) < (curr['ATR']*0.5) and curr['Close'] > curr['Open'] and curr['RSI'] < 40:
-                            sig = 'BUY'
+                        # VAL Support + Oversold + DI Bullish
+                        if abs(curr['Low'] - val) < (curr['ATR']*0.5) and curr['Close'] > curr['Open']:
+                            if curr['RSI'] < 40 and di_bullish:
+                                sig = 'BUY'
                         # Sell at VAH
-                        elif abs(curr['High'] - vah) < (curr['ATR']*0.5) and curr['Close'] < curr['Open'] and curr['RSI'] > 60:
-                            sig = 'SELL'
+                        # VAH Resistance + Overbought + DI Bearish
+                        elif abs(curr['High'] - vah) < (curr['ATR']*0.5) and curr['Close'] < curr['Open']:
+                             if curr['RSI'] > 60 and di_bearish:
+                                sig = 'SELL'
                     
                     if sig != 'NEUTRAL':
                          # Risk Sizing
