@@ -128,14 +128,23 @@ class Strategy:
     def is_session_active(self, df):
         """
         Check if current time is in optimal trading session.
-        Best scalping sessions:
-        - London Open: 08:00-11:00 UTC
-        - NY Open: 13:00-16:00 UTC
-        - London/NY Overlap: 13:00-16:00 UTC (BEST)
+        Asset-class aware:
+        - Crypto (-USD): Always active (24/7 market)
+        - Forex (=X): Active Mon-Fri, label session quality
+        - Stocks/Default: Session-based filtering
         """
         try:
             if df.empty:
                 return False, "No data"
+
+            # Detect asset class from ticker
+            ticker_upper = self.ticker.upper() if self.ticker else ""
+            is_crypto = ("-USD" in ticker_upper and "=" not in ticker_upper)
+            is_forex = "=X" in ticker_upper
+
+            # Crypto trades 24/7 — never filter out
+            if is_crypto:
+                return True, "Crypto 24/7"
 
             # Get last candle timestamp
             last_time = df.index[-1]
@@ -147,7 +156,22 @@ class Strategy:
                 # Assume UTC
                 utc_hour = last_time.hour
 
-            # Define sessions
+            # Forex trades 24/5 — only block weekends
+            if is_forex:
+                weekday = last_time.weekday() if hasattr(last_time, 'weekday') else 0
+                if weekday >= 5:  # Saturday/Sunday
+                    return False, "Forex Weekend (Closed)"
+                # Label session quality but don't block
+                if 13 <= utc_hour < 16:
+                    return True, "London/NY Overlap (Best)"
+                elif 8 <= utc_hour < 16:
+                    return True, "London/NY Session"
+                elif 0 <= utc_hour < 8:
+                    return True, "Asian Session"
+                else:
+                    return True, "US Session"
+
+            # Stocks / Default: original session filtering
             london_open = 8 <= utc_hour < 11
             ny_open = 13 <= utc_hour < 16
             overlap = 13 <= utc_hour < 16

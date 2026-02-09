@@ -1280,6 +1280,14 @@ class TradingBot:
                 regime = result.get("regime", "UNKNOWN")
                 strategy_used = result.get("strategy", "HYBRID_AUTO")
 
+            elif self.strategy_type == "elite_v3":
+                # === ELITE ADAPTIVE STRATEGY v3 (Composite VP + Regime Detection) ===
+                result = self.elite_strategy_v3.get_signal(df)
+                signal = result.get("signal")
+                confidence = result.get("confidence", 0)
+                regime = result.get("regime", "UNKNOWN")
+                strategy_used = result.get("strategy", "ELITE_V3")
+
             elif self.strategy_type == "adaptive" or self.strategy_type == "adaptive_vp":
                 # === ADAPTIVE VP STRATEGY (Session VP + VWAP) ===
                 result = self.adaptive_strategy.get_signal(df)
