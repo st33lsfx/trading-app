@@ -171,6 +171,9 @@ class TradingBot:
         # UI & Strategy State (Initialized here for immediate access)
         self.scan_results = []
         self.last_trade_times = {}
+        # Per-ticker loss tracking for escalating cooldown
+        # Format: { "TICKER": {"losses": int, "last_loss_dir": "BUY"|"SELL", "last_loss_time": float} }
+        self.ticker_loss_tracker = {}
         
         # =====================================================
         # BLACKLIST
@@ -279,6 +282,7 @@ class TradingBot:
         self.cached_account = {}
         self.cached_positions = []
         self.last_trade_times = {} # Reset Cooldowns on Start
+        self.ticker_loss_tracker = {} # Reset loss tracker on Start
         self.scan_results = [] # Reset Scanner Logs
         # strategy_config is preserved from __init__ (User edits)
         
@@ -1183,21 +1187,11 @@ class TradingBot:
             return False
         
         # ========================================
-        # COOLDOWN - Wait 15 min before trading same direction on same instrument
-        # NOVÉ: Povoluje opačný směr (hedging) i během cooldownu
+        # ESCALATING COOLDOWN - Longer cooldown after repeated losses
+        # 0 losses: 15 min, 1 loss: 45 min, 2+ losses: 120 min (same direction)
+        # Opposite direction is always allowed (trend reversal)
         # ========================================
-        COOLDOWN_SECONDS = 900  # 15 minutes
-        
-        # Uložíme jako tuple: (time, direction) místo jen time
-        last_trade_info = self.last_trade_times.get(yf_ticker)
-        
-        if last_trade_info:
-            last_time, last_direction = last_trade_info if isinstance(last_trade_info, tuple) else (last_trade_info, None)
-            
-            if time.time() - last_time < COOLDOWN_SECONDS:
-                # Cooldown je aktivní - ale povolíme opačný směr
-                # (last_direction bude nastaveno později po signálu, prozatím skip check)
-                pass  # Kontrola směru bude provedena po získání signálu
+        # (Direction-aware check happens after signal is generated, see below)
         # ========================================
         
         is_priority = ticker_data.get('priority', False)
@@ -1282,7 +1276,7 @@ class TradingBot:
 
             elif self.strategy_type == "elite_v3":
                 # === ELITE ADAPTIVE STRATEGY v3 (Composite VP + Regime Detection) ===
-                result = self.elite_strategy_v3.get_signal(df)
+                result = self.elite_strategy_v3.get_signal(df, major_trend=major_trend)
                 signal = result.get("signal")
                 confidence = result.get("confidence", 0)
                 regime = result.get("regime", "UNKNOWN")
@@ -1360,22 +1354,41 @@ class TradingBot:
 
             if signal in ["BUY", "SELL"]:
                 # ========================================
-                # DIRECTION-AWARE COOLDOWN CHECK
-                # Povolí opačný směr i během cooldownu (hedging)
+                # ESCALATING COOLDOWN CHECK
+                # After losses: 15min → 45min → 120min for same direction
+                # Opposite direction always allowed (trend reversal)
                 # ========================================
                 last_trade_info = self.last_trade_times.get(yf_ticker)
+                loss_info = self.ticker_loss_tracker.get(yf_ticker, {})
+                recent_losses = loss_info.get('losses', 0)
+                last_loss_dir = loss_info.get('last_loss_dir')
+
+                # Escalating cooldown based on consecutive losses on this ticker
+                if recent_losses >= 2:
+                    cooldown_secs = 7200  # 120 min after 2+ losses
+                elif recent_losses == 1:
+                    cooldown_secs = 2700  # 45 min after 1 loss
+                else:
+                    cooldown_secs = 900   # 15 min default
+
                 if last_trade_info:
                     last_time, last_direction = last_trade_info if isinstance(last_trade_info, tuple) else (last_trade_info, None)
-                    
-                    if time.time() - last_time < 900:  # 15 min cooldown
+
+                    if time.time() - last_time < cooldown_secs:
                         if last_direction == signal:
-                            # Stejný směr během cooldownu = SKIP
-                            remaining = int((900 - (time.time() - last_time)) / 60)
-                            self.log(f"[{yf_ticker}] Cooldown: {remaining}min (same direction {signal})")
+                            remaining = int((cooldown_secs - (time.time() - last_time)) / 60)
+                            self.log(f"[{yf_ticker}] Cooldown: {remaining}min (same dir {signal}, {recent_losses} losses)")
                             return False
                         else:
-                            # Opačný směr = POVOLENO (hedging)
-                            self.log(f"[{yf_ticker}] ✅ Hedge povoleno: {last_direction} → {signal}")
+                            self.log(f"[{yf_ticker}] Trend reversal: {last_direction} → {signal}")
+
+                # Extra guard: if last loss was same direction AND within 2h, block
+                if last_loss_dir == signal and recent_losses >= 1:
+                    last_loss_time = loss_info.get('last_loss_time', 0)
+                    if time.time() - last_loss_time < 7200:  # 2 hours
+                        remaining = int((7200 - (time.time() - last_loss_time)) / 60)
+                        self.log(f"[{yf_ticker}] Loss guard: {remaining}min cooldown (lost {signal} recently)")
+                        return False
                 # ========================================
 
                 # Auto-toggle shorts based on learning
@@ -1653,6 +1666,8 @@ class TradingBot:
                 # Retrieve indicator metadata stored at trade open
                 meta = getattr(self, '_trade_metadata', {}).get(epic, {})
 
+                exit_reason = "TP" if float(pnl) > 0 else "SL"
+
                 # Record in learning engine (with indicator combo + asset class tracking)
                 self.learning_engine.record_trade(
                     ticker=epic,
@@ -1660,11 +1675,29 @@ class TradingBot:
                     direction=direction,
                     entry_price=float(trade.get('openLevel', 0)),
                     exit_price=float(trade.get('closeLevel', 0)),
-                    exit_reason="TP" if float(pnl) > 0 else "SL",
+                    exit_reason=exit_reason,
                     indicators_used=meta.get('indicators_used', []),
                     asset_class=meta.get('asset_class', self.detect_asset_class(epic)),
                 )
-                
+
+                # Update per-ticker loss tracker for escalating cooldown
+                # Match by epic or yf ticker
+                for key in [epic, epic.replace("/", "")]:
+                    if exit_reason == "SL":
+                        prev = self.ticker_loss_tracker.get(key, {"losses": 0})
+                        self.ticker_loss_tracker[key] = {
+                            "losses": prev["losses"] + 1,
+                            "last_loss_dir": direction,
+                            "last_loss_time": time.time(),
+                        }
+                    else:
+                        # Win resets the loss counter for this ticker
+                        self.ticker_loss_tracker[key] = {
+                            "losses": 0,
+                            "last_loss_dir": None,
+                            "last_loss_time": 0,
+                        }
+
                 self._recorded_trade_ids.add(trade_id)
                 
                 # Keep set from growing too large
