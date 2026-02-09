@@ -104,6 +104,7 @@ class TradingBot:
         # "elite" = EliteStrategy v1 (VWAP + VP + Confluence)
         # "elite_v3" = EliteAdaptiveStrategy (Validated 52% Return Logic)
         self.strategy_type = "elite_v3"
+        print(f"DEBUG: Active Strategy Type: {self.strategy_type}") # Debug check
         
         # =====================================================
         # ELITE STRATEGY CONFIG (15m)
@@ -115,7 +116,7 @@ class TradingBot:
             "rsi_overbought": 60,
             "adx_min": 22,               # v5.0: Wider ADX range (was 25) — more trend signals
             "risk_reward": 1.3,          # v5.0: R:R 1.3 minimum (was 2.0)
-            "atr_sl_mult": 4.0,          # v5.0: Base ATR mult (was 3.0, overridden per asset class)
+            "sl_atr": 4.0,               # v5.0: Base ATR mult (was 3.0, overridden per asset class)
             "max_risk_pct": MAX_RISK_PCT,
             "min_rr_ratio": 1.3,         # v5.0: was 2.0 — allow wider SLs with lower R:R
             "st_period": 10,
@@ -1181,6 +1182,16 @@ class TradingBot:
         if self.is_blacklisted(yf_ticker) or self.is_blacklisted(t212_ticker):
             self.log(f"[{yf_ticker}] Skipped - Blacklisted")
             return False
+
+        # ========================================
+        # SPREAD FILTER (Critical Fix)
+        # ========================================
+        # For Capital.com or generic, check spread if possible
+        if self.broker == "capital":
+            spread_ok, spread_msg = self.check_spread_filter(t212_ticker)
+            if not spread_ok:
+                self.log(f"[{yf_ticker}] 🚫 Spread Filter: {spread_msg}")
+                return False
         
         # ========================================
         # COOLDOWN - Wait 15 min before trading same direction on same instrument
@@ -1279,7 +1290,9 @@ class TradingBot:
                 signal = result.get("signal")
                 regime = result.get("regime", "UNKNOWN")
                 strategy_used = result.get("strategy", "HYBRID_AUTO")
-
+            
+            elif self.strategy_type == "adaptive" or self.strategy_type == "adaptive_vp":
+                # === ADAPTIVE VP STRATEGY (Session VP + VWAP) ===
                 result = self.adaptive_strategy.get_signal(df)
                 signal = result.get("signal")
                 regime = result.get("regime", "UNKNOWN")
@@ -1289,7 +1302,7 @@ class TradingBot:
                 # === ELITE ADAPTIVE STRATEGY (v3.0) ===
                 result = self.elite_strategy_v3.get_signal(df)
                 signal = result.get("signal")
-                confidence = 0.8 # Static confidence for now
+                confidence = result.get("confidence", 0.75) # Use dynamic confidence
                 regime = result.get("regime", "UNKNOWN")
                 strategy_used = "ELITE_V3"
                 # Map reason/sl/tp for later logging

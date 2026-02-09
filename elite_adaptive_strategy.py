@@ -37,7 +37,8 @@ class EliteAdaptiveStrategy:
         # Filter & Execution
         self.rsi_period = self.config.get('rsi_period', 14)
         self.tp_rr = self.config.get('tp_rr', 2.0)
-        self.sl_atr = self.config.get('sl_atr', 2.0)
+        # Fix: Support both keys due to bot.py config mismatch
+        self.sl_atr = self.config.get('sl_atr', self.config.get('atr_sl_mult', 2.0))
         
         # State
         self.last_vp = None
@@ -180,11 +181,11 @@ class EliteAdaptiveStrategy:
         
         # --- 1. REGIME IDENTIFICATION ---
         # Trend: ADX > Threshold
-        # Range: ADX < Threshold
-        # Crash/Spike: ADX > 40 + Extreme RVol (handled by risk checks)
+        # Range: Strictly ADX < 18 (avoid falling knives in weak trends)
         
         is_trend = curr['ADX'] > self.adx_threshold
-        self.last_regime = "TREND" if is_trend else "RANGE"
+        is_range = curr['ADX'] < 18 # Stricter Range Definition
+        self.last_regime = "TREND" if is_trend else ("RANGE" if is_range else "NEUTRAL")
         
         # --- 2. VOLUME PROFILE LEVELS ---
         # We calculate VP on the window ending at previous candle (closed data)
@@ -207,6 +208,26 @@ class EliteAdaptiveStrategy:
         # Helper: Bullish/Bearish Candle
         is_bullish = curr['Close'] > curr['Open']
         is_bearish = curr['Close'] < curr['Open']
+        
+        # Helper: DI Direction Confirmation
+        di_bullish = curr['DIP'] > curr['DIM']
+        di_bearish = curr['DIM'] > curr['DIP']
+
+        # Helper: Bullish/Bearish Candle
+        is_bullish = curr['Close'] > curr['Open']
+        is_bearish = curr['Close'] < curr['Open']
+        
+        # Helper: DI Direction Confirmation
+        di_bullish = curr['DIP'] > curr['DIM']
+        di_bearish = curr['DIM'] > curr['DIP']
+
+        confidence = 0.55 # Base confidence (MIN_CONFIDENCE limit)
+        
+        # Boost Confidence with Confluence
+        if vol_confirmed: confidence += 0.1
+        if curr['ADX'] > 30 and is_trend: confidence += 0.1
+        if 40 < curr['RSI'] < 60: confidence += 0.05 # Safe RSI zone
+        if setup_type in ['Trend_Breakout', 'Trend_Pullback']: confidence += 0.1 # Trend > Range reliability
 
         # --- LOGIC: TREND REGIME ---
         if is_trend:
@@ -217,7 +238,7 @@ class EliteAdaptiveStrategy:
             # A) Breakout above VAH
             # B) Pullback to VWAP or POC
             # ---------------------------------------------------------
-            if curr['Close'] > curr['EMA_200'] and curr['Close'] > curr['VWAP']:
+            if curr['Close'] > curr['EMA_200'] and curr['Close'] > curr['VWAP'] and di_bullish:
                 
                 # A) VAH Breakout
                 # Check if we crossed above VAH recently and held
@@ -240,7 +261,7 @@ class EliteAdaptiveStrategy:
             # 1. Price below EMA200
             # 2. Price < VWAP
             # ---------------------------------------------------------
-            elif curr['Close'] < curr['EMA_200'] and curr['Close'] < curr['VWAP']:
+            elif curr['Close'] < curr['EMA_200'] and curr['Close'] < curr['VWAP'] and di_bearish:
                 
                 # A) VAL Breakdown
                 if prev['Close'] > val and curr['Close'] < val and vol_confirmed:
@@ -257,7 +278,7 @@ class EliteAdaptiveStrategy:
                         setup_type = "Trend_Pullback"
 
         # --- LOGIC: RANGE REGIME ---
-        else: # RANGE
+        elif is_range: # Strictly RANGE (ADX < 18)
             # ---------------------------------------------------------
             # MEAN REVERSION (Range Trading)
             # Buy at VAL / VWAP Lower Band
@@ -270,7 +291,7 @@ class EliteAdaptiveStrategy:
             below_vwap_lower = curr['Low'] < curr['VWAP_Lower']
             
             if (near_val or below_vwap_lower) and is_bullish:
-                if curr['RSI'] < 40: # Oversold condition
+                if curr['RSI'] < 40 and di_bullish: # Oversold + DI+ starting to take over?
                     signal = "BUY"
                     reason = "Range Reversal (VAL/Band Support)"
                     setup_type = "Mean_Reversion"
@@ -280,7 +301,7 @@ class EliteAdaptiveStrategy:
             above_vwap_upper = curr['High'] > curr['VWAP_Upper']
             
             if (near_vah or above_vwap_upper) and is_bearish:
-                if curr['RSI'] > 60: # Overbought condition
+                if curr['RSI'] > 60 and di_bearish: # Overbought + DI- starting to take over?
                     signal = "SELL"
                     reason = "Range Reversal (VAH/Band Resistance)"
                     setup_type = "Mean_Reversion"
@@ -329,6 +350,8 @@ class EliteAdaptiveStrategy:
             'tp': float(tp_price),
             'reason': reason,
             'setup': setup_type,
+            'setup': setup_type,
             'regime': self.last_regime,
+            'confidence': confidence,
             'vp': vp
         }
