@@ -1,0 +1,142 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © SmartZones_ALGO
+
+//@version=5
+strategy("SmartZones ALGO [Elite]", overlay=true, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, currency=currency.USD)
+
+// ==========================================
+// ⚙️ SETTINGS
+// ==========================================
+grp_struc = "Structure & AoI"
+length = input.int(5, "Fractal Length", minval=2, group=grp_struc)
+show_zones = input.bool(true, "Show Order Blocks (AOI)", group=grp_struc)
+zone_extend = input.int(10, "Zone Extension (Bars)", group=grp_struc)
+
+grp_strat = "Strategy Execution"
+use_2h = input.bool(true, "Trade 2H (Lower High / Sell)", group=grp_strat)
+use_2l = input.bool(true, "Trade 2L (Higher Low / Buy)", group=grp_strat)
+sl_mode = input.string("Swing", "Stop Loss Mode", options=["Swing", "ATR", "Fixed%"], group=grp_strat)
+rr_ratio = input.float(2.0, "Risk:Reward Ratio", group=grp_strat)
+
+// ==========================================
+// 🧠 LOGIC: FRACTALS & SWINGS
+// ==========================================
+// Williams Fractal Formula
+is_high = high[2] > high[0] and high[2] > high[1] and high[2] > high[3] and high[2] > high[4]
+is_low = low[2] < low[0] and low[2] < low[1] and low[2] < low[3] and low[2] < low[4]
+
+// ATR for dynamic label placement
+atr_val = ta.atr(14)
+
+// Store Swings
+var float last_sh = na
+var float last_sl = na
+var float last_sh_2 = na // 2nd last
+var float last_sl_2 = na // 2nd last
+
+// Structure State
+var string structure = "NEUTRAL"
+
+// Update Swings
+if is_high
+    last_sh_2 := last_sh
+    last_sh := high[2]
+    
+if is_low
+    last_sl_2 := last_sl
+    last_sl := low[2]
+
+// ==========================================
+// 📐 PATTERN RECOGNITION (2H / 2L)
+// ==========================================
+// 2H = Lower High (Bearish Structure Shift or Continuation)
+// Condition: New Fractal High formed AND New High < Previous High
+setup_2h = is_high and last_sh < last_sh_2
+
+// 2L = Higher Low (Bullish Structure Shift or Continuation)
+// Condition: New Fractal Low formed AND New Low > Previous Low
+setup_2l = is_low and last_sl > last_sl_2
+
+// ==========================================
+// 🎨 VISUALIZATION (Smart Money Style)
+// ==========================================
+// distinct colors
+col_res = color.new(color.red, 80)
+col_sup = color.new(color.teal, 80)
+col_res_border = color.new(color.red, 50)
+col_sup_border = color.new(color.teal, 50)
+
+// Plot Fractals (Small Triangles on Wicks)
+plotshape(is_high, "Swing High", shape.triangledown, location.abovebar, color=color.new(color.red, 20), size=size.tiny, offset=-2)
+plotshape(is_low, "Swing Low", shape.triangleup, location.belowbar, color=color.new(color.teal, 20), size=size.tiny, offset=-2)
+
+// Plot Structure Labels (Dynamic Y-Axis)
+// We use ATR to push labels slightly away from price so they don't overlap candles
+if setup_2h
+    label.new(bar_index-2, high[2] + (atr_val[2]*0.5), "2H\n(LH)", color=color.new(color.red, 90), style=label.style_label_down, textcolor=color.red, size=size.small)
+else if is_high
+    label.new(bar_index-2, high[2] + (atr_val[2]*0.5), "HH", color=color.new(color.gray, 90), style=label.style_label_down, textcolor=color.gray, size=size.tiny)
+
+if setup_2l
+    label.new(bar_index-2, low[2] - (atr_val[2]*0.5), "2L\n(HL)", color=color.new(color.teal, 90), style=label.style_label_up, textcolor=color.teal, size=size.small)
+else if is_low
+    label.new(bar_index-2, low[2] - (atr_val[2]*0.5), "LL", color=color.new(color.gray, 90), style=label.style_label_up, textcolor=color.gray, size=size.tiny)
+
+// Plot AOI Zones (Order Blocks)
+// RESISTANCE: From High down to Max(Open, Close) -> Captures the upper wick area
+// SUPPORT: From Low up to Min(Open, Close) -> Captures the lower wick area
+if show_zones and is_high
+    // Calculate Box Coordinates
+    top = high[2]
+    bottom = math.max(open[2], close[2])
+    // Fallback for Doji
+    if top == bottom
+        bottom := bottom - (atr_val[2] * 0.1)
+        
+    box.new(bar_index-2, top, bar_index+zone_extend, bottom, border_color=col_res_border, bgcolor=col_res)
+    
+if show_zones and is_low
+    // Calculate Box Coordinates
+    bottom = low[2]
+    top = math.min(open[2], close[2])
+    // Fallback for Doji
+    if top == bottom
+        top := top + (atr_val[2] * 0.1)
+        
+    box.new(bar_index-2, top, bar_index+zone_extend, bottom, border_color=col_sup_border, bgcolor=col_sup)
+
+// ==========================================
+// 🚀 STRATEGY EXECUTION
+// ==========================================
+// Note: Fractals are confirmed after 2 bars. We enter on the confirm bar (current).
+
+// LONG (2L Setup)
+if use_2l and setup_2l
+    stop_price = low[2] // Stop below the Swing Low
+    entry_price = close
+    risk = entry_price - stop_price
+    target_price = entry_price + (risk * rr_ratio)
+    
+    if risk > 0
+        strategy.entry("Long 2L", strategy.long, comment="Smart Buy")
+        strategy.exit("Exit 2L", "Long 2L", stop=stop_price, limit=target_price)
+
+// SHORT (2H Setup)
+if use_2h and setup_2h
+    stop_price = high[2] // Stop above the Swing High
+    entry_price = close
+    risk = stop_price - entry_price
+    target_price = entry_price - (risk * rr_ratio)
+    
+    if risk > 0
+        strategy.entry("Short 2H", strategy.short, comment="Smart Sell")
+        strategy.exit("Exit 2H", "Short 2H", stop=stop_price, limit=target_price)
+
+// ==========================================
+// 📊 DASHBOARD (Compact)
+// ==========================================
+var table dash = table.new(position.top_right, 2, 3, bgcolor=color.new(color.black, 40), border_width=1)
+if barstate.islast
+    table.cell(dash, 0, 0, "SmartZones ALGO", text_color=color.white, text_size=size.normal)
+    table.cell(dash, 0, 1, "Last Pattern", text_color=color.silver)
+    table.cell(dash, 1, 1, setup_2h ? "2H (Sell)" : (setup_2l ? "2L (Buy)" : "None"), text_color=color.yellow)

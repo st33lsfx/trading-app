@@ -1,13 +1,10 @@
 """
-Elite Adaptive Strategy (v3.0)
-==============================
-A high-performance trading logic combining:
-1. Composite Volume Profile (Rolling Multi-Day) -> Stronger S/R
-2. Adaptive Regime Detection (Trend/Range/Noise)
-3. Volatility-Adjusted Risk Management
-4. Institutional Order Flow Proxies (VWAP + CVD approximation)
-
-Designed for robust profitability in Crypto & Forex markets.
+Elite Adaptive Strategy (v3.1) — Session VP, VWAP, Smart Money Concept, Big Trades
+===================================================================================
+- Session Volume Profile: POC, VAH, VAL (správné zóny)
+- VWAP: Premium (nad VWAP) = prodejní zóna, Discount (pod VWAP) = nákupní zóna
+- Smart Money Concept: swing high/low (struktura), vstup jen u S/R
+- Big Trades: vstup jen při zvýšeném objemu (min. relativní volume)
 """
 
 import pandas as pd
@@ -20,27 +17,30 @@ class EliteAdaptiveStrategy:
     def __init__(self, config=None):
         self.config = config or {}
         
-        # --- Core Parameters ---
-        # Regime
         self.adx_threshold = self.config.get('adx_threshold', 25)
         self.adx_len = self.config.get('adx_len', 14)
         
-        # Volume Profile
-        self.vp_lookback_bars = self.config.get('vp_lookback', 288) # ~3 days of 15m (96*3)
+        self.use_session_vp = self.config.get('use_session_vp', True)
+        self.session_start_hour = self.config.get('session_start_hour', 0)
+        self.session_start_minute = self.config.get('session_start_minute', 0)
+        self.vp_lookback_bars = self.config.get('vp_lookback', 288)
         self.vp_bins = self.config.get('vp_bins', 50)
         self.vp_va_pct = self.config.get('vp_va_pct', 0.70)
+        self.min_session_bars_for_vp = self.config.get('min_session_bars_for_vp', 5)
         
-        # VWAP
-        self.vwap_window = self.config.get('vwap_window', 96) # ~1 day
+        self.vwap_window = self.config.get('vwap_window', 96)
         self.vwap_mult = self.config.get('vwap_mult', 2.0)
         
-        # Filter & Execution
         self.rsi_period = self.config.get('rsi_period', 14)
         self.tp_rr = self.config.get('tp_rr', 2.0)
-        # Fix: Support both keys due to bot.py config mismatch
         self.sl_atr = self.config.get('sl_atr', self.config.get('atr_sl_mult', 2.0))
         
-        # State
+        # Big Trades: vstup jen když objem je nad průměrem (smart money aktivní)
+        self.min_rvol = self.config.get('min_rvol_big_trade', 1.2)
+        # SMC: pivot length pro swing high/low
+        self.pivot_len = self.config.get('pivot_len', 5)
+        self.use_smc = self.config.get('use_smc_structure', True)
+        
         self.last_vp = None
         self.last_regime = "NEUTRAL"
 
@@ -64,6 +64,78 @@ class EliteAdaptiveStrategy:
         
         return vwap, rolling_std
 
+    def _get_swing_highs_lows(self, df, lookback=30):
+        """
+        SMC: detekce swing high / swing low (pivot) za posledních lookback barů.
+        Vrací (last_swing_high_price, last_swing_low_price) nebo (None, None).
+        """
+        if len(df) < self.pivot_len * 2 + 1 or lookback <= 0:
+            return None, None
+        subset = df.iloc[-lookback:]
+        h = subset["High"].values
+        l = subset["Low"].values
+        n = len(h)
+        k = self.pivot_len
+        last_sh = None
+        last_sl = None
+        for i in range(k, n - k):
+            if h[i] == np.max(h[i - k : i + k + 1]):
+                last_sh = h[i]
+            if l[i] == np.min(l[i - k : i + k + 1]):
+                last_sl = l[i]
+        return last_sh, last_sl
+
+    def _calculate_session_vp(self, df):
+        """
+        Session Volume Profile: only from start of current session (e.g. today 00:00 UTC).
+        Returns POC, VAH, VAL (70% value area). Used for intraday S/R.
+        """
+        if df.empty or not hasattr(df.index, 'date'):
+            return None
+        current_time = df.index[-1]
+        try:
+            current_day = current_time.date() if hasattr(current_time, 'date') else current_time
+        except Exception:
+            return None
+        subset = df[df.index.date == current_day].copy()
+        if len(subset) < self.min_session_bars_for_vp:
+            return None
+        # Forex often has Volume=0; use range as proxy
+        vol = subset['Volume'].replace(0, np.nan).fillna((subset['High'] - subset['Low']) * 100_000)
+        subset = subset.assign(_vol=vol)
+        price_min = subset['Low'].min()
+        price_max = subset['High'].max()
+        if price_min >= price_max:
+            return None
+        bins_edges = np.linspace(price_min, price_max, self.vp_bins + 1)
+        bin_mids = (bins_edges[:-1] + bins_edges[1:]) / 2
+        try:
+            binned = pd.cut(subset['Close'], bins=bins_edges, labels=bin_mids, include_lowest=True)
+            vp_series = subset['_vol'].groupby(binned, observed=False).sum()
+        except Exception:
+            return None
+        if vp_series.empty:
+            return None
+        poc_price = float(vp_series.idxmax())
+        total_vol = vp_series.sum()
+        sorted_bins = vp_series.sort_values(ascending=False)
+        cum_vol = 0
+        va_bins = []
+        for price, vol in sorted_bins.items():
+            cum_vol += vol
+            va_bins.append(float(price))
+            if cum_vol >= total_vol * self.vp_va_pct:
+                break
+        vah = max(va_bins)
+        val = min(va_bins)
+        return {
+            "POC": poc_price,
+            "VAH": vah,
+            "VAL": val,
+            "Profile": vp_series,
+            "source": "session",
+        }
+
     def _calculate_composite_vp(self, df):
         """
         Calculates a Composite Volume Profile over `vp_lookback_bars`.
@@ -72,35 +144,19 @@ class EliteAdaptiveStrategy:
         if len(df) < self.vp_lookback_bars:
             return None
             
-        # Slice the data
-        subset = df.iloc[-self.vp_lookback_bars:]
-        
+        subset = df.iloc[-self.vp_lookback_bars:].copy()
         price_min = subset['Low'].min()
         price_max = subset['High'].max()
-        
-        if price_min == price_max: return None
-        
-        # Create Histogram
-        range_size = price_max - price_min
-        bin_size = range_size / self.vp_bins
-        
-        # We need to distribute volume into bins
-        # Vectorized approach is faster than iterating rows
-        # But for clarity/robustness with pandas, we iterate or use cut
-        
-        # Using pandas cut
-        # We assign each row's volume to a price bin based on Close (approximation)
-        # More accurate: distribute Volume across (High-Low), but Close is standard for fast VP.
-        
+        if price_min == price_max:
+            return None
+        # Forex: Volume often 0 -> use (High-Low) as proxy
+        vol = subset['Volume'].replace(0, np.nan).fillna((subset['High'] - subset['Low']) * 100_000)
+        subset = subset.assign(_vol=vol)
         bins = np.linspace(price_min, price_max, self.vp_bins + 1)
-        # Labels are the mid-points
         bin_mids = (bins[:-1] + bins[1:]) / 2
-        
-        # Assign bins
         try:
-            # pd.cut returns categories. We want to sum volume per category.
             binned = pd.cut(subset['Close'], bins=bins, labels=bin_mids, include_lowest=True)
-            vp_series = subset['Volume'].groupby(binned, observed=False).sum()
+            vp_series = subset['_vol'].groupby(binned, observed=False).sum()
         except Exception:
             # Fallback (rare float errors)
             return None
@@ -130,7 +186,8 @@ class EliteAdaptiveStrategy:
             "POC": float(poc_price),
             "VAH": float(vah),
             "VAL": float(val),
-            "Profile": vp_series
+            "Profile": vp_series,
+            "source": "composite",
         }
 
     def add_indicators(self, df):
@@ -180,131 +237,108 @@ class EliteAdaptiveStrategy:
         prev = df.iloc[-2]
         
         # --- 1. REGIME IDENTIFICATION ---
-        # Trend: ADX > Threshold
-        # Range: Strictly ADX < 18 (avoid falling knives in weak trends)
+        # TREND = ADX >= threshold; RANGE = ADX < threshold (no gap -> more signals)
+        is_trend = curr['ADX'] >= self.adx_threshold
+        is_range = not is_trend
+        self.last_regime = "TREND" if is_trend else "RANGE"
         
-        is_trend = curr['ADX'] > self.adx_threshold
-        is_range = curr['ADX'] < 18 # Stricter Range Definition
-        self.last_regime = "TREND" if is_trend else ("RANGE" if is_range else "NEUTRAL")
-        
-        # --- 2. VOLUME PROFILE LEVELS ---
-        # We calculate VP on the window ending at previous candle (closed data)
-        # to avoid repainting.
-        vp = self._calculate_composite_vp(df.iloc[:-1]) 
-        if not vp:
-             return {'signal': 'NEUTRAL', 'reason': 'VP Calc Failed'}
-             
+        # --- 2. VOLUME PROFILE LEVELS (Session VP preferred, then composite) ---
+        # Session VP = today's session only -> correct VAH/VAL/POC for intraday
+        vp = None
+        if self.use_session_vp:
+            vp = self._calculate_session_vp(df.iloc[:-1])
+        if vp is None and len(df) >= self.vp_lookback_bars:
+            vp = self._calculate_composite_vp(df.iloc[:-1])
+        if vp is None:
+            return {'signal': 'NEUTRAL', 'reason': 'VP Calc Failed (session + composite)'}
         poc = vp['POC']
         vah = vp['VAH']
         val = vp['VAL']
         
         signal = "NEUTRAL"
-        reason = "No Setup" # Default reason
-        setup_type = "" # 'Breakout', 'Pullback', 'MeanReversion'
-        
-        # Helper: Relative Volume check (Volume > MA)
-        vol_confirmed = curr['RVol'] > 1.0
-        
-        # Helper: Bullish/Bearish Candle
-        is_bullish = curr['Close'] > curr['Open']
-        is_bearish = curr['Close'] < curr['Open']
-        
-        # Helper: DI Direction Confirmation
-        di_bullish = curr['DIP'] > curr['DIM']
-        di_bearish = curr['DIM'] > curr['DIP']
+        reason = "No Setup"
+        setup_type = ""
 
-        # Helper: Bullish/Bearish Candle
-        is_bullish = curr['Close'] > curr['Open']
-        is_bearish = curr['Close'] < curr['Open']
-        
-        # Helper: DI Direction Confirmation
-        di_bullish = curr['DIP'] > curr['DIM']
-        di_bearish = curr['DIM'] > curr['DIP']
+        # --- Big Trades: vstup jen při zvýšeném objemu (nebo u forexu při větším range) ---
+        vol_confirmed = curr["RVol"] >= self.min_rvol
+        if not vol_confirmed and (curr.get("RVol", 0) == 0 or pd.isna(curr.get("RVol"))):
+            # Forex často nemá Volume; filtr "big bar": rozsah svíčky >= průměr (významný pohyb)
+            bar_range = curr["High"] - curr["Low"]
+            avg_range = df["High"].sub(df["Low"]).rolling(20).mean().iloc[-1] if len(df) >= 20 else bar_range
+            vol_confirmed = avg_range > 0 and bar_range >= avg_range
+        vwap = curr["VWAP"]
+        close_px = curr["Close"]
 
-        confidence = 0.55 # Base confidence (MIN_CONFIDENCE limit)
-        
-        # Boost Confidence with Confluence
-        if vol_confirmed: confidence += 0.1
-        if curr['ADX'] > 30 and is_trend: confidence += 0.1
-        if 40 < curr['RSI'] < 60: confidence += 0.05 # Safe RSI zone
-        if setup_type in ['Trend_Breakout', 'Trend_Pullback']: confidence += 0.1 # Trend > Range reliability
+        # --- VWAP Premium / Discount (Smart Money) ---
+        in_discount = close_px < vwap  # pod VWAP = nákupní zóna
+        in_premium = close_px > vwap   # nad VWAP = prodejní zóna
 
-        # --- LOGIC: TREND REGIME ---
+        is_bullish = curr["Close"] > curr["Open"]
+        is_bearish = curr["Close"] < curr["Open"]
+        di_bullish = curr["DIP"] > curr["DIM"]
+        di_bearish = curr["DIM"] > curr["DIP"]
+        atr_half = curr["ATR"] * 0.5
+
+        # SMC: poslední swing high/low (pro strukturu)
+        last_sh, last_sl = self._get_swing_highs_lows(df.iloc[:-1], lookback=25) if self.use_smc else (None, None)
+        atr_ = curr["ATR"]
+        near_swing_low = (last_sl is not None and abs(curr["Low"] - last_sl) <= atr_) if last_sl is not None else True
+        near_swing_high = (last_sh is not None and abs(curr["High"] - last_sh) <= atr_) if last_sh is not None else True
+
+        confidence = 0.55
+        if vol_confirmed:
+            confidence += 0.1
+        if curr["ADX"] > 30 and is_trend:
+            confidence += 0.1
+
+        # --- TREND: breakouts s volume, pullback k VWAP v trendu ---
         if is_trend:
-            # ---------------------------------------------------------
-            # LONG TREND SETUP
-            # 1. Price above EMA200 (Long-term trend)
-            # 2. Price > VWAP (Mid-term trend)
-            # A) Breakout above VAH
-            # B) Pullback to VWAP or POC
-            # ---------------------------------------------------------
-            if curr['Close'] > curr['EMA_200'] and curr['Close'] > curr['VWAP'] and di_bullish:
-                
-                # A) VAH Breakout
-                # Check if we crossed above VAH recently and held
-                if prev['Close'] < vah and curr['Close'] > vah and vol_confirmed:
-                    if curr['RSI'] > 50 and curr['RSI'] < 70: # Momentum OK, not overbought
-                        signal = "BUY"
-                        reason = f"Trend Breakout > VAH ({vah:.2f})"
-                        setup_type = "Trend_Breakout"
-                        
-                # B) VWAP Pullback
-                # Check near VWAP + Bullish rejection
-                elif abs(curr['Low'] - curr['VWAP']) < (curr['ATR'] * 0.5):
-                    if is_bullish and curr['RSI'] > 40: # Bounce req
-                         signal = "BUY"
-                         reason = "Trend Pullback to VWAP"
-                         setup_type = "Trend_Pullback"
-
-            # ---------------------------------------------------------
-            # SHORT TREND SETUP
-            # 1. Price below EMA200
-            # 2. Price < VWAP
-            # ---------------------------------------------------------
-            elif curr['Close'] < curr['EMA_200'] and curr['Close'] < curr['VWAP'] and di_bearish:
-                
-                # A) VAL Breakdown
-                if prev['Close'] > val and curr['Close'] < val and vol_confirmed:
-                    if curr['RSI'] < 50 and curr['RSI'] > 30:
-                        signal = "SELL"
-                        reason = f"Trend Breakdown < VAL ({val:.2f})"
-                        setup_type = "Trend_Breakout"
-                        
-                # B) VWAP Pullback (Short)
-                elif abs(curr['High'] - curr['VWAP']) < (curr['ATR'] * 0.5):
-                    if is_bearish and curr['RSI'] < 60:
-                        signal = "SELL"
-                        reason = "Trend Pullback to VWAP (Short)"
-                        setup_type = "Trend_Pullback"
-
-        # --- LOGIC: RANGE REGIME ---
-        elif is_range: # Strictly RANGE (ADX < 18)
-            # ---------------------------------------------------------
-            # MEAN REVERSION (Range Trading)
-            # Buy at VAL / VWAP Lower Band
-            # Sell at VAH / VWAP Upper Band
-            # Context: RSI Extremes useful here
-            # ---------------------------------------------------------
-            
-            # LONG: Price @ VAL or VWAP Lower
-            near_val = abs(curr['Low'] - val) < (curr['ATR'] * 0.5)
-            below_vwap_lower = curr['Low'] < curr['VWAP_Lower']
-            
-            if (near_val or below_vwap_lower) and is_bullish:
-                if curr['RSI'] < 40 and di_bullish: # Oversold + DI+ starting to take over?
+            if curr["Close"] > curr["EMA_200"] and curr["Close"] > vwap and di_bullish:
+                if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and 50 < curr["RSI"] < 70:
                     signal = "BUY"
-                    reason = "Range Reversal (VAL/Band Support)"
-                    setup_type = "Mean_Reversion"
-            
-            # SHORT: Price @ VAH or VWAP Upper
-            near_vah = abs(curr['High'] - vah) < (curr['ATR'] * 0.5)
-            above_vwap_upper = curr['High'] > curr['VWAP_Upper']
-            
-            if (near_vah or above_vwap_upper) and is_bearish:
-                if curr['RSI'] > 60 and di_bearish: # Overbought + DI- starting to take over?
+                    reason = f"Trend Breakout > VAH ({vah:.2f})"
+                    setup_type = "Trend_Breakout"
+                elif abs(curr["Low"] - vwap) < atr_half and is_bullish and curr["RSI"] > 40 and vol_confirmed:
+                    signal = "BUY"
+                    reason = "Trend Pullback to VWAP"
+                    setup_type = "Trend_Pullback"
+
+            elif curr["Close"] < curr["EMA_200"] and curr["Close"] < vwap and di_bearish:
+                if prev["Close"] > val and curr["Close"] < val and vol_confirmed and 30 < curr["RSI"] < 50:
                     signal = "SELL"
-                    reason = "Range Reversal (VAH/Band Resistance)"
+                    reason = f"Trend Breakdown < VAL ({val:.2f})"
+                    setup_type = "Trend_Breakout"
+                elif abs(curr["High"] - vwap) < atr_half and is_bearish and curr["RSI"] < 60 and vol_confirmed:
+                    signal = "SELL"
+                    reason = "Trend Pullback to VWAP (Short)"
+                    setup_type = "Trend_Pullback"
+
+        # --- RANGE: pouze v správné zóně (Discount = long, Premium = short) + Big Trades ---
+        elif is_range and vol_confirmed:
+            near_val = abs(curr["Low"] - val) <= atr_half or (curr["Close"] <= val + atr_ and curr["Low"] <= val + atr_)
+            near_vah = abs(curr["High"] - vah) <= atr_half or (curr["Close"] >= vah - atr_ and curr["High"] >= vah - atr_)
+
+            # LONG jen v DISCOUNT (pod VWAP) a u VAL nebo VWAP Lower. SMC: preferovat u swing low.
+            if in_discount and near_val and is_bullish and curr["RSI"] < 50:
+                if not self.use_smc or near_swing_low:
+                    signal = "BUY"
+                    reason = f"Range BUY @ VAL discount ({val:.2f})"
                     setup_type = "Mean_Reversion"
+            if signal == "NEUTRAL" and in_discount and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 45:
+                signal = "BUY"
+                reason = "Range BUY @ VWAP Lower (discount)"
+                setup_type = "Mean_Reversion"
+
+            # SHORT jen v PREMIUM (nad VWAP) a u VAH nebo VWAP Upper. SMC: preferovat u swing high.
+            if signal == "NEUTRAL" and in_premium and near_vah and is_bearish and curr["RSI"] > 50:
+                if not self.use_smc or near_swing_high:
+                    signal = "SELL"
+                    reason = f"Range SELL @ VAH premium ({vah:.2f})"
+                    setup_type = "Mean_Reversion"
+            if signal == "NEUTRAL" and in_premium and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 55:
+                signal = "SELL"
+                reason = "Range SELL @ VWAP Upper (premium)"
+                setup_type = "Mean_Reversion"
 
         # --- RISK MANAGEMENT (SL/TP) ---
         if signal == "NEUTRAL":
@@ -326,29 +360,33 @@ class EliteAdaptiveStrategy:
         # Range setups: Tight SL, Target Middle
         
         if setup_type in ["Trend_Breakout", "Trend_Pullback"]:
-            used_sl_mult = self.sl_atr * 1.5 # Looser SL for trending
-            used_tp_rr = self.tp_rr # Target 2:1 or 3:1
-        else: # Mean Reversion
-            used_sl_mult = self.sl_atr # Tighter SL
-            used_tp_rr = 1.5 # Smaller target (revert to mean)
-            
+            used_sl_mult = self.sl_atr * 1.5
+            used_tp_rr = self.tp_rr
+        else:
+            used_sl_mult = self.sl_atr
+            used_tp_rr = 1.5
+
         if signal == "BUY":
             sl_price = close - (atr * used_sl_mult)
-            # Ensure SL is below support (e.g. below VAL or VWAP if close)
-            # If Pullback, SL below swing low (approximated by Low - ATR)
             if setup_type == "Trend_Pullback":
                 sl_price = min(sl_price, curr['Low'] - atr)
-                
-            tp_dist = (close - sl_price) * used_tp_rr
-            tp_price = close + tp_dist
-            
+            # Range: cíl POC, pokud je pod cenou pak VAH
+            if setup_type == "Mean_Reversion":
+                tp_price = poc if poc > close else vah
+            else:
+                tp_dist = (close - sl_price) * used_tp_rr
+                tp_price = close + tp_dist
+
         elif signal == "SELL":
             sl_price = close + (atr * used_sl_mult)
             if setup_type == "Trend_Pullback":
                 sl_price = max(sl_price, curr['High'] + atr)
-                
-            tp_dist = (sl_price - close) * used_tp_rr
-            tp_price = close - tp_dist
+            # Range: cíl POC, pokud je nad cenou pak VAL
+            if setup_type == "Mean_Reversion":
+                tp_price = poc if poc < close else val
+            else:
+                tp_dist = (sl_price - close) * used_tp_rr
+                tp_price = close - tp_dist
             
         return {
             'signal': signal,

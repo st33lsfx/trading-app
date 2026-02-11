@@ -114,16 +114,24 @@ class TradingBot:
             "rsi_oversold": 40,
             "rsi_sell": 40,
             "rsi_overbought": 60,
-            "adx_min": 22,               # v5.0: Wider ADX range (was 25) — more trend signals
-            "risk_reward": 1.3,          # v5.0: R:R 1.3 minimum (was 2.0)
-            "sl_atr": 4.0,               # v5.0: Base ATR mult (was 3.0, overridden per asset class)
+            "adx_min": 22,
+            "adx_threshold": 25,         # elite_v3: TREND if ADX >= 25, else RANGE
+            "risk_reward": 1.3,
+            "sl_atr": 4.0,
             "max_risk_pct": MAX_RISK_PCT,
-            "min_rr_ratio": 1.3,         # v5.0: was 2.0 — allow wider SLs with lower R:R
+            "min_rr_ratio": 1.3,
             "st_period": 10,
             "st_multiplier": 3.0,
             "hma_fast": 9,
             "hma_slow": 21,
-            "min_confluence": 3,         # v5.0: 3 indicators (VP + 2 others)
+            "min_confluence": 3,
+            # Session VP + VWAP + SMC + Big Trades (elite_v3)
+            "use_session_vp": True,
+            "vp_lookback": 288,
+            "min_session_bars_for_vp": 5,
+            "min_rvol_big_trade": 1.2,   # vstup jen při vyšším objemu (big trades)
+            "use_smc_structure": True,    # Smart Money: swing high/low
+            "pivot_len": 5,
         }
         
         # === HIGH VOLUME SETTINGS ===
