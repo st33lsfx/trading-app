@@ -42,6 +42,8 @@ class EliteAdaptiveStrategy:
         self.use_smc = self.config.get('use_smc_structure', False)
         # Forex: jen mean reversion u VAL/VAH (trend breakouts na forexu často selhávají)
         self.forex_range_only = self.config.get('forex_range_only', False)
+        # Forex mode: používat jen VWAP/EMA/RSI (ne VP - syntetický volume)
+        self.forex_mode = self.config.get('forex_mode', False)
         
         self.last_vp = None
         self.last_regime = "NEUTRAL"
@@ -246,17 +248,24 @@ class EliteAdaptiveStrategy:
         self.last_regime = "TREND" if is_trend else "RANGE"
         
         # --- 2. VOLUME PROFILE LEVELS (Session VP preferred, then composite) ---
-        # Session VP = today's session only -> correct VAH/VAL/POC for intraday
+        # FOREX MODE: Skip VP (syntetický volume), používat jen VWAP bands
         vp = None
-        if self.use_session_vp:
-            vp = self._calculate_session_vp(df.iloc[:-1])
-        if vp is None and len(df) >= self.vp_lookback_bars:
-            vp = self._calculate_composite_vp(df.iloc[:-1])
-        if vp is None:
-            return {'signal': 'NEUTRAL', 'reason': 'VP Calc Failed (session + composite)'}
-        poc = vp['POC']
-        vah = vp['VAH']
-        val = vp['VAL']
+        poc = vah = val = None
+        
+        if not self.forex_mode:
+            # Crypto: Session VP = today's session only -> correct VAH/VAL/POC for intraday
+            if self.use_session_vp:
+                vp = self._calculate_session_vp(df.iloc[:-1])
+            if vp is None and len(df) >= self.vp_lookback_bars:
+                vp = self._calculate_composite_vp(df.iloc[:-1])
+            if vp is None:
+                return {'signal': 'NEUTRAL', 'reason': 'VP Calc Failed (session + composite)'}
+            poc = vp['POC']
+            vah = vp['VAH']
+            val = vp['VAL']
+        else:
+            # Forex: používáme VWAP bands jako S/R
+            vp = {'source': 'forex_vwap_only'}
         
         signal = "NEUTRAL"
         reason = "No Setup"
@@ -294,9 +303,46 @@ class EliteAdaptiveStrategy:
         if curr["ADX"] > 30 and is_trend:
             confidence += 0.1
 
+        # ========== FOREX MODE: Simple VWAP + EMA Strategy (no VP) ==========
+        if self.forex_mode:
+            # Forex: EMA trend + VWAP bands + RSI
+            ema_bullish = curr["Close"] > curr["EMA_200"] and curr["EMA_20"] > curr["EMA_200"]
+            ema_bearish = curr["Close"] < curr["EMA_200"] and curr["EMA_20"] < curr["EMA_200"]
+            
+            # TREND režim: breakout + pullback
+            if is_trend:
+                # LONG: pullback k VWAP v uptrend
+                if ema_bullish and abs(curr["Low"] - vwap) < atr_half and is_bullish and 40 < curr["RSI"] < 70:
+                    signal = "BUY"
+                    reason = "Forex: VWAP Pullback (Uptrend)"
+                    setup_type = "Trend_Pullback"
+                    confidence += 0.05
+                # SHORT: pullback k VWAP v downtrend
+                elif ema_bearish and abs(curr["High"] - vwap) < atr_half and is_bearish and 30 < curr["RSI"] < 60:
+                    signal = "SELL"
+                    reason = "Forex: VWAP Pullback (Downtrend)"
+                    setup_type = "Trend_Pullback"
+                    confidence += 0.05
+            
+            # RANGE režim: mean reversion u VWAP bands
+            elif is_range:
+                # LONG: oversold u VWAP lower band (uvolněný RSI < 45)
+                if curr["Low"] <= curr["VWAP_Lower"] and is_bullish and curr["RSI"] < 45:
+                    signal = "BUY"
+                    reason = "Forex: VWAP Lower Band Bounce"
+                    setup_type = "Mean_Reversion"
+                    confidence += 0.05
+                # SHORT: overbought u VWAP upper band (uvolněný RSI > 55)
+                elif curr["High"] >= curr["VWAP_Upper"] and is_bearish and curr["RSI"] > 55:
+                    signal = "SELL"
+                    reason = "Forex: VWAP Upper Band Reversal"
+                    setup_type = "Mean_Reversion"
+                    confidence += 0.05
+        
+        # ========== CRYPTO MODE: VP Strategy (original) ==========
         # --- TREND: breakouts s volume, pullback k VWAP v trendu ---
         # forex_range_only: skip trend – obchodujeme jen VAL/VAH mean reversion
-        if is_trend and not self.forex_range_only:
+        elif is_trend and not self.forex_range_only:
             if curr["Close"] > curr["EMA_200"] and curr["Close"] > vwap and di_bullish:
                 if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and 50 < curr["RSI"] < 70:
                     signal = "BUY"
@@ -381,12 +427,19 @@ class EliteAdaptiveStrategy:
             if setup_type == "Trend_Pullback":
                 sl_price = min(sl_price, curr['Low'] - atr)
             if setup_type == "Mean_Reversion":
-                # SL pod VAL, ale respektuj used_sl_mult (ne fixní 1.0)
-                sl_price = min(sl_price, val - atr * 0.5)
-                risk = close - sl_price
-                # TP: min 1.2:1 R:R (kvalitnější mean reversion)
-                min_reward = risk * 1.2
-                tp_price = max(vah, close + min_reward)
+                # Forex mode: SL pod VWAP lower, crypto: SL pod VAL
+                if self.forex_mode:
+                    sl_price = min(sl_price, curr["VWAP_Lower"] - atr * 0.5)
+                    risk = close - sl_price
+                    # TP: VWAP (fair value) nebo min 1.5:1 R:R
+                    tp_price = max(vwap, close + risk * 1.5)
+                else:
+                    # SL pod VAL, ale respektuj used_sl_mult (ne fixní 1.0)
+                    sl_price = min(sl_price, val - atr * 0.5)
+                    risk = close - sl_price
+                    # TP: min 1.2:1 R:R (kvalitnější mean reversion)
+                    min_reward = risk * 1.2
+                    tp_price = max(vah, close + min_reward)
             else:
                 tp_dist = (close - sl_price) * used_tp_rr
                 tp_price = close + tp_dist
@@ -396,12 +449,19 @@ class EliteAdaptiveStrategy:
             if setup_type == "Trend_Pullback":
                 sl_price = max(sl_price, curr['High'] + atr)
             if setup_type == "Mean_Reversion":
-                # SL nad VAH, ale respektuj used_sl_mult
-                sl_price = max(sl_price, vah + atr * 0.5)
-                risk = sl_price - close
-                # TP: min 1.2:1 R:R
-                min_reward = risk * 1.2
-                tp_price = min(val, close - min_reward)
+                # Forex mode: SL nad VWAP upper, crypto: SL nad VAH
+                if self.forex_mode:
+                    sl_price = max(sl_price, curr["VWAP_Upper"] + atr * 0.5)
+                    risk = sl_price - close
+                    # TP: VWAP nebo min 1.5:1 R:R
+                    tp_price = min(vwap, close - risk * 1.5)
+                else:
+                    # SL nad VAH, ale respektuj used_sl_mult
+                    sl_price = max(sl_price, vah + atr * 0.5)
+                    risk = sl_price - close
+                    # TP: min 1.2:1 R:R
+                    min_reward = risk * 1.2
+                    tp_price = min(val, close - min_reward)
             else:
                 tp_dist = (sl_price - close) * used_tp_rr
                 tp_price = close - tp_dist
