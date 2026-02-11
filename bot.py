@@ -168,10 +168,10 @@ class TradingBot:
         self.dry_run = getattr(self, "dry_run", DRY_RUN)
         self.max_risk_pct = 0.30 # v5.0: Max risk 30% equity to allow crypto min sizes (BTC 0.01)
 
-        # Daily Limits (v7.0 CRYPTO PROFIT MODE)
-        # 2000 Kč: target 160 Kč (8%), max loss 80 Kč (4%) — více prostoru pro crypto volatilitu
-        self.daily_profit_target = min(500.0, INITIAL_CAPITAL_CZK * 0.08)
-        self.max_daily_loss = min(120.0, INITIAL_CAPITAL_CZK * 0.04)
+        # Daily Limits (v7.0 CRYPTO PROFIT MODE + SCALE-OUT v6.0)
+        # Target: 500 Kč profit denně (25% z 2000 Kč) — agresivní profit taking s scale-out
+        self.daily_profit_target = 500.0  # Fixed 500 Kč target
+        self.max_daily_loss = 200.0  # Max ztráta 200 Kč (10% equity)
         self.daily_pnl = 0.0
         self.daily_reset_date = date.today().isoformat()
         self.session_stopped_reason = None # "daily_loss", "profit_target", "drawdown"
