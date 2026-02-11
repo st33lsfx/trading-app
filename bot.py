@@ -211,7 +211,8 @@ class TradingBot:
             {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "cat": "Crypto"},
             {"epic": "MATICUSD", "yf": "MATIC-USD", "name": "Polygon", "cat": "Crypto"},
             {"epic": "LINKUSD", "yf": "LINK-USD", "name": "Chainlink", "cat": "Crypto"},
-            {"epic": "UNIUSD", "yf": "UNI-USD", "name": "Uniswap", "cat": "Crypto"},
+            # UNI a MATIC byly delistovány z yfinance
+            # {"epic": "UNIUSD", "yf": "UNI-USD", "name": "Uniswap", "cat": "Crypto"},
             {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "Near Protocol", "cat": "Crypto"},
             {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "cat": "Crypto"},
             {"epic": "XLMUSD", "yf": "XLM-USD", "name": "Stellar", "cat": "Crypto"},
@@ -221,11 +222,12 @@ class TradingBot:
             {"epic": "APTUSD", "yf": "APT-USD", "name": "Aptos", "cat": "Crypto"},
             {"epic": "FTMUSD", "yf": "FTM-USD", "name": "Fantom", "cat": "Crypto"},
             {"epic": "ALGOUSD", "yf": "ALGO-USD", "name": "Algorand", "cat": "Crypto"},
-            # VET má 16% spread na T212 - skip
-            # {"epic": "VETUSD", "yf": "VET-USD", "name": "VeChain", "cat": "Crypto"},
+            # VET má 16% spread - skip
             {"epic": "GRTUSD", "yf": "GRT-USD", "name": "The Graph", "cat": "Crypto"},
             {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto"},
-            {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto"},
+            # MANIC byla delistována
+            # {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto"},
+            {"epic": "SHIBAUSD", "yf": "SHIB-USD", "name": "Shiba Inu", "cat": "Crypto"},
         ]
         # Total: 25 crypto aktiv (reálný volume pro VP)
         

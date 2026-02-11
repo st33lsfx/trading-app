@@ -274,12 +274,13 @@ class EliteAdaptiveStrategy:
         # --- Volume Filter ---
         # Crypto: Volume je skutečný → povolíme všechny setupy (vol_confirmed = True vždy)
         # Forex: Volume je syntetický → používáme RVol filter
+        # DEBUG: v5.2 update - crypto volume filter vypnut
         if self.forex_mode:
             # Forex: vyžadujeme min. RVol
             vol_confirmed = curr.get("RVol", 0) >= 0.5 or pd.isna(curr.get("RVol"))
         else:
             # Crypto: volume filter OFF (skutečný volume, všechny setupy OK)
-            vol_confirmed = True
+            vol_confirmed = True  # v5.2: Always True for crypto
         vwap = curr["VWAP"]
         close_px = curr["Close"]
 
