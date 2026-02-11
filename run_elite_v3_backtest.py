@@ -7,9 +7,9 @@ Spouští stejnou logiku jako live bot (get_signal na každý bar).
 import argparse
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from datetime import datetime, timedelta
 from elite_adaptive_strategy import EliteAdaptiveStrategy
+from data_fetcher import fetch_data as fetch_market_data
 
 
 # Konfigurace shodná s bot.py pro elite_v3
@@ -35,28 +35,9 @@ def get_forex_config():
 
 
 def fetch_data(ticker: str, period: str = "60d", interval: str = "15m") -> pd.DataFrame:
-    try:
-        df = yf.download(
-            ticker,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True,
-        )
-        if df.empty:
-            return df
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        for c in list(df.columns):
-            if "adj" in str(c).lower():
-                df = df.drop(columns=[c], errors="ignore")
-        if "Volume" not in df.columns:
-            df["Volume"] = (df["High"] - df["Low"]) * 100_000
-        df.dropna(inplace=True)
-        return df
-    except Exception as e:
-        print(f"Chyba stahování {ticker}: {e}")
-        return pd.DataFrame()
+    """yfinance + Stooq fallback (když yfinance nevrátí data)."""
+    df = fetch_market_data(ticker, period=period, interval=interval)
+    return df
 
 
 def run_backtest(

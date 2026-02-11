@@ -1,6 +1,6 @@
-import yfinance as yf
 import pandas as pd
 import ta
+from data_fetcher import fetch_data as fetch_market_data
 import warnings
 # Suppress FutureWarning from ta library regarding Series.__setitem__
 # We filter by module 'ta' to be safe and cover all submodules
@@ -13,15 +13,8 @@ class Strategy:
         self.ticker = ticker
 
     def fetch_data(self, period="5d", interval="5m"):
-        """Fetch historical data from Yahoo Finance."""
-        try:
-            ticker_obj = yf.Ticker(self.ticker)
-            # Fetch enough data for 200 EMA + lookback
-            df = ticker_obj.history(period=period, interval=interval)
-            return df
-        except Exception as e:
-            print(f"Error fetching {self.ticker}: {e}")
-            return pd.DataFrame()
+        """Fetch historical data (yfinance + Stooq fallback)."""
+        return fetch_market_data(self.ticker, period=period, interval=interval)
 
     def fetch_trend_data(self):
         """Fetch 4h data for trend analysis."""
