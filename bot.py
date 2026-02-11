@@ -125,7 +125,7 @@ class TradingBot:
             "rsi_sell": 40,
             "rsi_overbought": 60,
             "adx_min": 22,
-            "adx_threshold": 28,         # v4.0 CRYPTO PERFECT: silnější trend
+            "adx_threshold": 25,         # TREND if ADX >= 25
             "risk_reward": 1.3,
             "sl_atr": 4.0,
             "max_risk_pct": MAX_RISK_PCT,

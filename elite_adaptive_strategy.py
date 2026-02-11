@@ -18,8 +18,8 @@ class EliteAdaptiveStrategy:
     def __init__(self, config=None):
         self.config = config or {}
         
-        # v4.0: Silnější trend = lepší setupy (ADX 28 místo 25)
-        self.adx_threshold = self.config.get('adx_threshold', 28)
+        # ADX 25 = trend (26 moc málo setupů v praxi)
+        self.adx_threshold = self.config.get('adx_threshold', 25)
         self.adx_len = self.config.get('adx_len', 14)
         
         self.use_session_vp = self.config.get('use_session_vp', True)
@@ -368,23 +368,23 @@ class EliteAdaptiveStrategy:
         # ========== CRYPTO MODE: VP Strategy (v4.0 PERFECT) ==========
         elif is_trend and not self.forex_range_only:
             rvol = curr.get("RVol")
-            breakout_vol = (pd.isna(rvol) or rvol >= 0.75)  # Breakout vyžaduje volume
+            breakout_vol = (pd.isna(rvol) or rvol >= 0.55)  # Breakout: min volume (0.75 bylo moc)
             # UPTREND setupy (Close > EMA200, Close > VWAP)
             if curr["Close"] > curr["EMA_200"] and curr["Close"] > vwap and di_bullish:
-                # 1. Breakout NAD VAH — vyžaduje volume confirmation
-                if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and breakout_vol and 52 < curr["RSI"] < 68:
+                # 1. Breakout NAD VAH
+                if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and breakout_vol and 48 < curr["RSI"] < 72:
                     signal = "BUY"
                     reason = f"Trend Breakout > VAH ({vah:.2f})"
                     setup_type = "Trend_Breakout"
                     confidence += 0.14
-                # 2. Pullback k VWAP — bullish candle
-                elif abs(curr["Low"] - vwap) < atr_half and is_bullish and 42 < curr["RSI"] < 62 and vol_confirmed:
+                # 2. Pullback k VWAP — bullish candle (atr místo atr_half = větší zóna)
+                elif abs(curr["Low"] - vwap) < atr_ and is_bullish and 38 < curr["RSI"] < 65 and vol_confirmed:
                     signal = "BUY"
                     reason = "Trend Pullback to VWAP"
                     setup_type = "Trend_Pullback"
                     confidence += 0.10
                 # 3. Pullback k EMA20
-                elif signal == "NEUTRAL" and abs(curr["Low"] - curr["EMA_20"]) < atr_half and is_bullish and 45 < curr["RSI"] < 63:
+                elif signal == "NEUTRAL" and abs(curr["Low"] - curr["EMA_20"]) < atr_ and is_bullish and 40 < curr["RSI"] < 68:
                     signal = "BUY"
                     reason = "Trend Pullback to EMA20"
                     setup_type = "Trend_Pullback"
@@ -393,26 +393,26 @@ class EliteAdaptiveStrategy:
             # DOWNTREND setupy (Close < EMA200, Close < VWAP)
             elif curr["Close"] < curr["EMA_200"] and curr["Close"] < vwap and di_bearish:
                 # 1. Breakdown POD VAL
-                if prev["Close"] > val and curr["Close"] < val and vol_confirmed and breakout_vol and 32 < curr["RSI"] < 48:
+                if prev["Close"] > val and curr["Close"] < val and vol_confirmed and breakout_vol and 28 < curr["RSI"] < 52:
                     signal = "SELL"
                     reason = f"Trend Breakdown < VAL ({val:.2f})"
                     setup_type = "Trend_Breakout"
                     confidence += 0.14
                 # 2. Pullback k VWAP
-                elif abs(curr["High"] - vwap) < atr_half and is_bearish and 38 < curr["RSI"] < 58 and vol_confirmed:
+                elif abs(curr["High"] - vwap) < atr_ and is_bearish and 35 < curr["RSI"] < 62 and vol_confirmed:
                     signal = "SELL"
                     reason = "Trend Pullback to VWAP (Short)"
                     setup_type = "Trend_Pullback"
                     confidence += 0.10
                 # 3. Pullback k EMA20
-                elif signal == "NEUTRAL" and abs(curr["High"] - curr["EMA_20"]) < atr_half and is_bearish and 37 < curr["RSI"] < 53:
+                elif signal == "NEUTRAL" and abs(curr["High"] - curr["EMA_20"]) < atr_ and is_bearish and 32 < curr["RSI"] < 58:
                     signal = "SELL"
                     reason = "Trend Pullback to EMA20 (Short)"
                     setup_type = "Trend_Pullback"
                     confidence += 0.08
 
-        # --- RANGE: vstup u VAL/VAH (v4.0: ADX 15+ = vynechat choppy) ---
-        elif is_range and vol_confirmed and curr["ADX"] >= 15:
+        # --- RANGE: vstup u VAL/VAH (ADX 12+ = vynechat jen velmi choppy) ---
+        elif is_range and vol_confirmed and curr["ADX"] >= 12:
             # Zpřísněné podmínky: close musí být v zóně, ne moc daleko od VAL/VAH
             # BUY: close mezi VAL-0.5ATR a VAL+0.3ATR (blízko support, ale ne moc pod)
             # SELL: close mezi VAH-0.3ATR a VAH+0.5ATR (blízko resistance, ale ne moc nad)
@@ -422,27 +422,27 @@ class EliteAdaptiveStrategy:
             in_value_long = in_discount or curr["Close"] <= poc
             in_value_short = in_premium or curr["Close"] >= poc
 
-            # LONG: RSI oversold (< 40) — v4.0 přísnější
-            if in_value_long and near_val and is_bullish and curr["RSI"] < 40:
+            # LONG: RSI oversold (< 45) — rozumný range pro bounce
+            if in_value_long and near_val and is_bullish and curr["RSI"] < 45:
                 if not self.use_smc or near_swing_low:
                     signal = "BUY"
                     reason = f"Range BUY @ VAL ({val:.2f})"
                     setup_type = "Mean_Reversion"
                     confidence += 0.12
-            if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 38:
+            if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 42:
                 signal = "BUY"
                 reason = "Range BUY @ VWAP Lower"
                 setup_type = "Mean_Reversion"
                 confidence += 0.10
 
-            # SHORT: RSI overbought (> 60) — v4.0 přísnější
-            if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 60:
+            # SHORT: RSI overbought (> 55)
+            if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 55:
                 if not self.use_smc or near_swing_high:
                     signal = "SELL"
                     reason = f"Range SELL @ VAH ({vah:.2f})"
                     setup_type = "Mean_Reversion"
                     confidence += 0.12
-            if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 62:
+            if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 58:
                 signal = "SELL"
                 reason = "Range SELL @ VWAP Upper"
                 setup_type = "Mean_Reversion"
@@ -463,8 +463,8 @@ class EliteAdaptiveStrategy:
                 if vol_confirms:
                     confidence += 0.06  # OBV/ADL potvrzuje směr
                 elif vol_opposes:
-                    confidence -= 0.15  # v4.0: ObV/ADL proti = silná penalizace
-                    if confidence < 0.68:  # CRYPTO PERFECT: zamítnout
+                    confidence -= 0.08  # OBV/ADL proti = mírná penalizace (nezamítat hned)
+                    if confidence < 0.62:  # Zamítnout jen když confidence klesne pod 62%
                         return {'signal': 'NEUTRAL', 'reason': 'OBV/ADL proti signálu', 'rsi': float(curr['RSI']), 'adx': float(curr['ADX']), 'regime': self.last_regime}
 
         # --- RISK MANAGEMENT (SL/TP) ---

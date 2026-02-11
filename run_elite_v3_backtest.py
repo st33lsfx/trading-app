@@ -12,10 +12,10 @@ from elite_adaptive_strategy import EliteAdaptiveStrategy
 from data_fetcher import fetch_data as fetch_market_data
 
 
-# Konfigurace v4.0 CRYPTO PERFECT
+# Konfigurace
 DEFAULT_CONFIG = {
     "use_session_vp": True,
-    "adx_threshold": 28,
+    "adx_threshold": 25,
     "sl_atr": 4.0,
     "tp_rr": 2.0,
     "vp_lookback": 96,   # 1 den (rychlejší, crypto-friendly)
