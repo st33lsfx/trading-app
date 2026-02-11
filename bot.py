@@ -131,9 +131,9 @@ class TradingBot:
             "min_confluence": 3,
             # Session VP + VWAP (elite_v3) – vyvážené pro obchody + zisk
             "use_session_vp": True,
-            "vp_lookback": 288,
+            "vp_lookback": 96,   # 96 barů = 1 den (288 = 3 dny bylo moc)
             "min_session_bars_for_vp": 5,
-            "min_rvol_big_trade": 0.9,    # 0.9 = blízko průměru (1.2 = příliš málo signálů)
+            "min_rvol_big_trade": 0.5,    # 0.5 = reálnější (0.9 blokovalo většinu setupů)
             "use_smc_structure": False,   # OFF = více obchodů; zapnout jen při ověření
             "pivot_len": 5,
         }

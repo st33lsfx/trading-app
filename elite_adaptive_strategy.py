@@ -271,13 +271,15 @@ class EliteAdaptiveStrategy:
         reason = "No Setup"
         setup_type = ""
 
-        # --- Big Trades: vstup jen při zvýšeném objemu ---
-        # Forex: RVol často 0.3-0.8 (syntetický z range), takže snížíme limit na 0.5
-        vol_confirmed = curr["RVol"] >= self.min_rvol
-        if not vol_confirmed:
-            # Forex: povolíme i nízký RVol (>= 0.5), protože Volume je syntetický
-            if curr.get("RVol", 0) == 0 or pd.isna(curr.get("RVol")) or curr["RVol"] >= 0.5:
-                vol_confirmed = True
+        # --- Volume Filter ---
+        # Crypto: Volume je skutečný → povolíme všechny setupy (vol_confirmed = True vždy)
+        # Forex: Volume je syntetický → používáme RVol filter
+        if self.forex_mode:
+            # Forex: vyžadujeme min. RVol
+            vol_confirmed = curr.get("RVol", 0) >= 0.5 or pd.isna(curr.get("RVol"))
+        else:
+            # Crypto: volume filter OFF (skutečný volume, všechny setupy OK)
+            vol_confirmed = True
         vwap = curr["VWAP"]
         close_px = curr["Close"]
 
