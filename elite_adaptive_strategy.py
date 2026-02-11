@@ -1,10 +1,10 @@
 """
-Elite Adaptive Strategy (v3.1) — Session VP, VWAP, Smart Money Concept, Big Trades
-===================================================================================
-- Session Volume Profile: POC, VAH, VAL (správné zóny)
-- VWAP: Premium (nad VWAP) = prodejní zóna, Discount (pod VWAP) = nákupní zóna
-- Smart Money Concept: swing high/low (struktura), vstup jen u S/R
-- Big Trades: vstup jen při zvýšeném objemu (min. relativní volume)
+Elite Adaptive Strategy (v4.0 CRYPTO PERFECT) — Optimalizováno pro ziskové crypto obchody
+=========================================================================================
+- Session VP: POC, VAH, VAL — vstup jen u ověřených zón
+- VWAP + OBV/ADL: Volume confluence MANDATORY pro crypto
+- Trend: ADX 28+ (silný trend), Range: ADX 15+ (vynechat choppy)
+- Min R:R 1.5, přísnější RSI
 """
 
 import pandas as pd
@@ -18,7 +18,8 @@ class EliteAdaptiveStrategy:
     def __init__(self, config=None):
         self.config = config or {}
         
-        self.adx_threshold = self.config.get('adx_threshold', 25)
+        # v4.0: Silnější trend = lepší setupy (ADX 28 místo 25)
+        self.adx_threshold = self.config.get('adx_threshold', 28)
         self.adx_len = self.config.get('adx_len', 14)
         
         self.use_session_vp = self.config.get('use_session_vp', True)
@@ -288,16 +289,13 @@ class EliteAdaptiveStrategy:
         reason = "No Setup"
         setup_type = ""
 
-        # --- Volume Filter ---
-        # Crypto: Volume je skutečný → povolíme všechny setupy (vol_confirmed = True vždy)
-        # Forex: Volume je syntetický → používáme RVol filter
-        # DEBUG: v5.2 update - crypto volume filter vypnut
+        # --- Volume Filter (v4.0 CRYPTO PERFECT) ---
         if use_forex_mode:
-            # Forex: vyžadujeme min. RVol
             vol_confirmed = curr.get("RVol", 0) >= 0.5 or pd.isna(curr.get("RVol"))
         else:
-            # Crypto: volume filter OFF (skutečný volume, všechny setupy OK)
-            vol_confirmed = True  # v5.2: Always True for crypto
+            # Crypto: RVol >= 0.5 (příliš nízké = slabý signál)
+            rvol = curr.get("RVol")
+            vol_confirmed = (pd.isna(rvol) or rvol >= 0.5)
         vwap = curr["VWAP"]
         close_px = curr["Close"]
 
@@ -317,12 +315,12 @@ class EliteAdaptiveStrategy:
         near_swing_low = (last_sl is not None and abs(curr["Low"] - last_sl) <= atr_) if last_sl is not None else True
         near_swing_high = (last_sh is not None and abs(curr["High"] - last_sh) <= atr_) if last_sh is not None else True
 
-        # Base confidence – 0.65+ po bonusech = PROFIT MODE pass
-        confidence = 0.58
+        # Base confidence (v4.0) – vyšší baseline pro quality
+        confidence = 0.60
         if vol_confirmed:
+            confidence += 0.06
+        if curr["ADX"] >= 30 and is_trend:
             confidence += 0.08
-        if curr["ADX"] > 30 and is_trend:
-            confidence += 0.10
 
         # ========== FOREX MODE: VWAP + EMA + RSI (přísnější filtry pro profitabilitu) ==========
         if use_forex_mode:
@@ -367,53 +365,54 @@ class EliteAdaptiveStrategy:
                     setup_type = "Mean_Reversion"
                     confidence += 0.06
         
-        # ========== CRYPTO MODE: VP Strategy ==========
-        # --- TREND: Více setupů - breakouts, pullbacks, continuation ---
+        # ========== CRYPTO MODE: VP Strategy (v4.0 PERFECT) ==========
         elif is_trend and not self.forex_range_only:
+            rvol = curr.get("RVol")
+            breakout_vol = (pd.isna(rvol) or rvol >= 0.75)  # Breakout vyžaduje volume
             # UPTREND setupy (Close > EMA200, Close > VWAP)
             if curr["Close"] > curr["EMA_200"] and curr["Close"] > vwap and di_bullish:
-                # 1. Breakout NAD VAH
-                if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and 50 < curr["RSI"] < 70:
+                # 1. Breakout NAD VAH — vyžaduje volume confirmation
+                if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and breakout_vol and 52 < curr["RSI"] < 68:
                     signal = "BUY"
                     reason = f"Trend Breakout > VAH ({vah:.2f})"
                     setup_type = "Trend_Breakout"
-                    confidence += 0.12  # Strong setup
-                # 2. Pullback k VWAP
-                elif abs(curr["Low"] - vwap) < atr_half and is_bullish and curr["RSI"] > 40 and vol_confirmed:
+                    confidence += 0.14
+                # 2. Pullback k VWAP — bullish candle
+                elif abs(curr["Low"] - vwap) < atr_half and is_bullish and 42 < curr["RSI"] < 62 and vol_confirmed:
                     signal = "BUY"
                     reason = "Trend Pullback to VWAP"
                     setup_type = "Trend_Pullback"
-                    confidence += 0.08
-                # 3. Pullback k EMA20 (nový setup)
-                elif signal == "NEUTRAL" and abs(curr["Low"] - curr["EMA_20"]) < atr_half and is_bullish and 45 < curr["RSI"] < 65:
+                    confidence += 0.10
+                # 3. Pullback k EMA20
+                elif signal == "NEUTRAL" and abs(curr["Low"] - curr["EMA_20"]) < atr_half and is_bullish and 45 < curr["RSI"] < 63:
                     signal = "BUY"
                     reason = "Trend Pullback to EMA20"
                     setup_type = "Trend_Pullback"
-                    confidence += 0.06
+                    confidence += 0.08
 
             # DOWNTREND setupy (Close < EMA200, Close < VWAP)
             elif curr["Close"] < curr["EMA_200"] and curr["Close"] < vwap and di_bearish:
                 # 1. Breakdown POD VAL
-                if prev["Close"] > val and curr["Close"] < val and vol_confirmed and 30 < curr["RSI"] < 50:
+                if prev["Close"] > val and curr["Close"] < val and vol_confirmed and breakout_vol and 32 < curr["RSI"] < 48:
                     signal = "SELL"
                     reason = f"Trend Breakdown < VAL ({val:.2f})"
                     setup_type = "Trend_Breakout"
-                    confidence += 0.12
+                    confidence += 0.14
                 # 2. Pullback k VWAP
-                elif abs(curr["High"] - vwap) < atr_half and is_bearish and curr["RSI"] < 60 and vol_confirmed:
+                elif abs(curr["High"] - vwap) < atr_half and is_bearish and 38 < curr["RSI"] < 58 and vol_confirmed:
                     signal = "SELL"
                     reason = "Trend Pullback to VWAP (Short)"
                     setup_type = "Trend_Pullback"
-                    confidence += 0.08
-                # 3. Pullback k EMA20 (nový setup)
-                elif signal == "NEUTRAL" and abs(curr["High"] - curr["EMA_20"]) < atr_half and is_bearish and 35 < curr["RSI"] < 55:
+                    confidence += 0.10
+                # 3. Pullback k EMA20
+                elif signal == "NEUTRAL" and abs(curr["High"] - curr["EMA_20"]) < atr_half and is_bearish and 37 < curr["RSI"] < 53:
                     signal = "SELL"
                     reason = "Trend Pullback to EMA20 (Short)"
                     setup_type = "Trend_Pullback"
-                    confidence += 0.06
+                    confidence += 0.08
 
-        # --- RANGE: vstup u VAL/VAH, v zóně hodnoty. Vyhýbáme se velmi slabému ADX (choppy). ---
-        elif is_range and vol_confirmed and curr["ADX"] >= 12:
+        # --- RANGE: vstup u VAL/VAH (v4.0: ADX 15+ = vynechat choppy) ---
+        elif is_range and vol_confirmed and curr["ADX"] >= 15:
             # Zpřísněné podmínky: close musí být v zóně, ne moc daleko od VAL/VAH
             # BUY: close mezi VAL-0.5ATR a VAL+0.3ATR (blízko support, ale ne moc pod)
             # SELL: close mezi VAH-0.3ATR a VAH+0.5ATR (blízko resistance, ale ne moc nad)
@@ -423,31 +422,31 @@ class EliteAdaptiveStrategy:
             in_value_long = in_discount or curr["Close"] <= poc
             in_value_short = in_premium or curr["Close"] >= poc
 
-            # LONG: RSI oversold (< 45) – kvalita nad kvantitou
-            if in_value_long and near_val and is_bullish and curr["RSI"] < 45:
+            # LONG: RSI oversold (< 40) — v4.0 přísnější
+            if in_value_long and near_val and is_bullish and curr["RSI"] < 40:
                 if not self.use_smc or near_swing_low:
                     signal = "BUY"
                     reason = f"Range BUY @ VAL ({val:.2f})"
                     setup_type = "Mean_Reversion"
-                    confidence += 0.10
-            if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 42:
+                    confidence += 0.12
+            if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 38:
                 signal = "BUY"
                 reason = "Range BUY @ VWAP Lower"
                 setup_type = "Mean_Reversion"
-                confidence += 0.08
+                confidence += 0.10
 
-            # SHORT: RSI overbought (> 55)
-            if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 55:
+            # SHORT: RSI overbought (> 60) — v4.0 přísnější
+            if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 60:
                 if not self.use_smc or near_swing_high:
                     signal = "SELL"
                     reason = f"Range SELL @ VAH ({vah:.2f})"
                     setup_type = "Mean_Reversion"
-                    confidence += 0.10
-            if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 58:
+                    confidence += 0.12
+            if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 62:
                 signal = "SELL"
                 reason = "Range SELL @ VWAP Upper"
                 setup_type = "Mean_Reversion"
-                confidence += 0.08
+                confidence += 0.10
 
         # --- OBV/ADL CONFLUENCE (volume potvrzuje trend = vyšší profitabilita) ---
         # FOREX: přeskočit OBV/ADL (syntetický volume z range proxy → nespolehlivé)
@@ -464,9 +463,9 @@ class EliteAdaptiveStrategy:
                 if vol_confirms:
                     confidence += 0.06  # OBV/ADL potvrzuje směr
                 elif vol_opposes:
-                    confidence -= 0.12  # OBV/ADL proti signálu = slabší setup
-                    if confidence < 0.65:  # PROFIT MODE: zamítnout setup bez volume confluence
-                        return {'signal': 'NEUTRAL', 'reason': 'OBV/ADL proti signálu (low confidence)', 'rsi': float(curr['RSI']), 'adx': float(curr['ADX']), 'regime': self.last_regime}
+                    confidence -= 0.15  # v4.0: ObV/ADL proti = silná penalizace
+                    if confidence < 0.68:  # CRYPTO PERFECT: zamítnout
+                        return {'signal': 'NEUTRAL', 'reason': 'OBV/ADL proti signálu', 'rsi': float(curr['RSI']), 'adx': float(curr['ADX']), 'regime': self.last_regime}
 
         # --- RISK MANAGEMENT (SL/TP) ---
         if signal == "NEUTRAL":
@@ -509,8 +508,8 @@ class EliteAdaptiveStrategy:
                     # SL pod VAL, ale respektuj used_sl_mult (ne fixní 1.0)
                     sl_price = min(sl_price, val - atr * 0.5)
                     risk = close - sl_price
-                    # TP: min 1.2:1 R:R (kvalitnější mean reversion)
-                    min_reward = risk * 1.2
+                    # TP: min 1.4:1 R:R (v4.0 mean reversion)
+                    min_reward = risk * 1.4
                     tp_price = max(vah, close + min_reward)
             else:
                 tp_dist = (close - sl_price) * used_tp_rr
@@ -538,8 +537,8 @@ class EliteAdaptiveStrategy:
                 tp_dist = (sl_price - close) * used_tp_rr
                 tp_price = close - tp_dist
 
-        # Min R:R 1.15 – PROFIT MODE: jen setupy s solidním rewardem
-        min_rr = 1.15
+        # Min R:R 1.5 — v4.0 CRYPTO PERFECT: vyšší reward/risk
+        min_rr = 1.5
         if signal == "BUY":
             risk = close - sl_price
             reward = tp_price - close

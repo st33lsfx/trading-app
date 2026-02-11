@@ -12,10 +12,10 @@ from elite_adaptive_strategy import EliteAdaptiveStrategy
 from data_fetcher import fetch_data as fetch_market_data
 
 
-# Konfigurace shodná s bot.py pro elite_v3
+# Konfigurace v4.0 CRYPTO PERFECT
 DEFAULT_CONFIG = {
     "use_session_vp": True,
-    "adx_threshold": 25,
+    "adx_threshold": 28,
     "sl_atr": 4.0,
     "tp_rr": 2.0,
     "vp_lookback": 96,   # 1 den (rychlejší, crypto-friendly)
@@ -131,8 +131,8 @@ def run_backtest(
                 res = {"signal": "NEUTRAL"}
             sig = res.get("signal", "NEUTRAL")
             conf = res.get("confidence", 0)
-            # PROFIT MODE: min confidence 0.65 (stejně jako live bot)
-            if sig in ("BUY", "SELL") and conf < 0.65:
+            # v4.0 CRYPTO PERFECT: min confidence 0.68
+            if sig in ("BUY", "SELL") and conf < 0.68:
                 sig = "NEUTRAL"
             if sig in ("BUY", "SELL") and res.get("sl") is not None and res.get("tp") is not None:
                 close_px = row["Close"]

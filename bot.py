@@ -125,7 +125,7 @@ class TradingBot:
             "rsi_sell": 40,
             "rsi_overbought": 60,
             "adx_min": 22,
-            "adx_threshold": 25,         # elite_v3: TREND if ADX >= 25, else RANGE
+            "adx_threshold": 28,         # v4.0 CRYPTO PERFECT: silnější trend
             "risk_reward": 1.3,
             "sl_atr": 4.0,
             "max_risk_pct": MAX_RISK_PCT,
@@ -190,82 +190,76 @@ class TradingBot:
         self.log(f"🧠 Strategy Initialized: {self.strategy_type}")
         self.log(f"📊 Timeframe: {INTERVAL}, Period: {PERIOD}")
         if PROFIT_MODE:
-            self.log(f"🎯 CRYPTO PROFIT MODE v7.0: 30 crypto | 2% risk | Min conf 65% | Daily +{self.daily_profit_target:.0f}/-{self.max_daily_loss:.0f} Kč")
+            self.log(f"🎯 CRYPTO PERFECT v4.0: 50 crypto | 2% risk | Min conf 68% | R:R 1.5 | Daily +{self.daily_profit_target:.0f}/-{self.max_daily_loss:.0f} Kč")
 
         # UI & Strategy State (Initialized here for immediate access)
         self.scan_results = []
         self.last_trade_times = {}
         
         # =====================================================
-        # BLACKLIST
+        # BLACKLIST (v4.0 CRYPTO PERFECT — ztrátové z backtestu)
         # =====================================================
         self.ticker_blacklist = [
-            "LTCUSD", "LTC-USD", # Still choppy often
-            "Si=F", "Silver", # Spreads
+            "LTCUSD", "LTC-USD",  # Choppy
+            "Si=F", "Silver",     # Spreads
+            # v4.0: Backtest ztrátové (WR < 35%, PF < 0.9)
+            "AAVEUSD", "AAVE-USD", "HBARUSD", "HBAR-USD", "ALGOUSD", "ALGO-USD",
+            "INJUSD", "INJ-USD", "FILUSD", "FIL-USD", "LINKUSD", "LINK-USD",
+            "MKRUSD", "MKR-USD", "FLOKUSD", "FLOKI-USD",
         ]
         # Forex skip – prázdné = bot skenuje vše a sám vybírá nejlepší (learning)
         self.forex_skip_for_profit = []
         
         # =====================================================
-        # WATCHLIST – 50 CRYPTO = maximum příležitostí (forex ztratový → vypnut)
+        # WATCHLIST – 50 CRYPTO (v4.0 PERFECT) — TOP performers first
         # =====================================================
         self.priority_tickers = [
-            # === TOP TIER — Highest liquidity, best backtest results ===
+            # === TIER 1 — Best backtest: EOS, SAND, MANA, DOGE, SOL, OP, BNB, NEAR ===
+            {"epic": "EOSUSD", "yf": "EOS-USD", "name": "EOS", "cat": "Crypto", "priority": True},
+            {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto", "priority": True},
+            {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto", "priority": True},
+            {"epic": "DOGEUSD", "yf": "DOGE-USD", "name": "Dogecoin", "cat": "Crypto", "priority": True},
+            {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto", "priority": True},
+            {"epic": "OPUSD", "yf": "OP-USD", "name": "Optimism", "cat": "Crypto", "priority": True},
+            {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto", "priority": True},
+            {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "Near Protocol", "cat": "Crypto", "priority": True},
+            {"epic": "AXSUSD", "yf": "AXS-USD", "name": "Axie Infinity", "cat": "Crypto", "priority": True},
+            {"epic": "FETUSD", "yf": "FET-USD", "name": "Fetch.ai", "cat": "Crypto", "priority": True},
+            # === TIER 2 — BTC, ETH, major caps ===
             {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "cat": "Crypto"},
             {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "cat": "Crypto"},
-            {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto"},
-            {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto"},
             {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto"},
-            {"epic": "DOGEUSD", "yf": "DOGE-USD", "name": "Dogecoin", "cat": "Crypto"},
+            {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "cat": "Crypto"},
+            {"epic": "LTCUSD", "yf": "LTC-USD", "name": "Litecoin", "cat": "Crypto"},
+            {"epic": "RUNEUSD", "yf": "RUNE-USD", "name": "THORChain", "cat": "Crypto"},
+            {"epic": "SEIUSD", "yf": "SEI-USD", "name": "Sei", "cat": "Crypto"},
+            {"epic": "EGLDUSD", "yf": "EGLD-USD", "name": "MultiversX", "cat": "Crypto"},
+            {"epic": "ZILUSD", "yf": "ZIL-USD", "name": "Zilliqa", "cat": "Crypto"},
+            {"epic": "CHZUSD", "yf": "CHZ-USD", "name": "Chiliz", "cat": "Crypto"},
+            # === TIER 3 — Solid altcoins ===
             {"epic": "ADAUSD", "yf": "ADA-USD", "name": "Cardano", "cat": "Crypto"},
             {"epic": "AVAXUSD", "yf": "AVAX-USD", "name": "Avalanche", "cat": "Crypto"},
             {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "cat": "Crypto"},
-            {"epic": "LINKUSD", "yf": "LINK-USD", "name": "Chainlink", "cat": "Crypto"},
-            # === MID CAP — Good volatility, more setups ===
-            {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "Near Protocol", "cat": "Crypto"},
-            {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "cat": "Crypto"},
             {"epic": "XLMUSD", "yf": "XLM-USD", "name": "Stellar", "cat": "Crypto"},
-            {"epic": "LTCUSD", "yf": "LTC-USD", "name": "Litecoin", "cat": "Crypto"},
-            {"epic": "TRXUSD", "yf": "TRX-USD", "name": "Tron", "cat": "Crypto"},
-            {"epic": "ICPUSD", "yf": "ICP-USD", "name": "Internet Computer", "cat": "Crypto"},
-            {"epic": "ALGOUSD", "yf": "ALGO-USD", "name": "Algorand", "cat": "Crypto"},
-            {"epic": "SUIUSD", "yf": "SUI-USD", "name": "Sui", "cat": "Crypto"},
-            {"epic": "INJUSD", "yf": "INJ-USD", "name": "Injective", "cat": "Crypto"},
-            {"epic": "HBARUSD", "yf": "HBAR-USD", "name": "Hedera", "cat": "Crypto"},
-            # === ALTCOINS — Higher volatility = bigger moves ===
-            {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto"},
-            {"epic": "SHIBAUSD", "yf": "SHIB-USD", "name": "Shiba Inu", "cat": "Crypto"},
-            {"epic": "PEPEUSD", "yf": "PEPE-USD", "name": "Pepe", "cat": "Crypto"},
-            {"epic": "ARBUSD", "yf": "ARB-USD", "name": "Arbitrum", "cat": "Crypto"},
-            {"epic": "OPUSD", "yf": "OP-USD", "name": "Optimism", "cat": "Crypto"},
-            {"epic": "FILUSD", "yf": "FIL-USD", "name": "Filecoin", "cat": "Crypto"},
             {"epic": "VETUSD", "yf": "VET-USD", "name": "VeChain", "cat": "Crypto"},
-            {"epic": "RUNEUSD", "yf": "RUNE-USD", "name": "THORChain", "cat": "Crypto"},
-            {"epic": "SEIUSD", "yf": "SEI-USD", "name": "Sei", "cat": "Crypto"},
-            {"epic": "WLDUSD", "yf": "WLD-USD", "name": "Worldcoin", "cat": "Crypto"},
-            # === EXTRA 20 — rozšíření na 50 aktiv pro max příležitosti ===
-            {"epic": "AABORUSD", "yf": "AAVE-USD", "name": "Aave", "cat": "Crypto"},
-            {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto"},
             {"epic": "GALAUSD", "yf": "GALA-USD", "name": "Gala", "cat": "Crypto"},
-            {"epic": "AXSUSD", "yf": "AXS-USD", "name": "Axie Infinity", "cat": "Crypto"},
-            {"epic": "EOSUSD", "yf": "EOS-USD", "name": "EOS", "cat": "Crypto"},
-            {"epic": "MKRUSD", "yf": "MKR-USD", "name": "Maker", "cat": "Crypto"},
-            {"epic": "APENEUSD", "yf": "APE-USD", "name": "ApeCoin", "cat": "Crypto"},
+            {"epic": "ENSUSD", "yf": "ENS-USD", "name": "Ethereum Name Service", "cat": "Crypto"},
+            {"epic": "SHIBAUSD", "yf": "SHIB-USD", "name": "Shiba Inu", "cat": "Crypto"},
+            {"epic": "WLDUSD", "yf": "WLD-USD", "name": "Worldcoin", "cat": "Crypto"},
+            {"epic": "KASUSD", "yf": "KAS-USD", "name": "Kaspa", "cat": "Crypto"},
+            # === TIER 4 — Další příležitosti ===
+            {"epic": "SUIUSD", "yf": "SUI-USD", "name": "Sui", "cat": "Crypto"},
+            {"epic": "ARBUSD", "yf": "ARB-USD", "name": "Arbitrum", "cat": "Crypto"},
+            {"epic": "PEPEUSD", "yf": "PEPE-USD", "name": "Pepe", "cat": "Crypto"},
+            {"epic": "APEUSD", "yf": "APE-USD", "name": "ApeCoin", "cat": "Crypto"},
             {"epic": "CRVUSD", "yf": "CRV-USD", "name": "Curve DAO", "cat": "Crypto"},
             {"epic": "LDOUSD", "yf": "LDO-USD", "name": "Lido DAO", "cat": "Crypto"},
-            {"epic": "ENSUSD", "yf": "ENS-USD", "name": "Ethereum Name Service", "cat": "Crypto"},
-            {"epic": "IMXUSD", "yf": "IMX-USD", "name": "Immutable X", "cat": "Crypto"},
-            {"epic": "FLOKUSD", "yf": "FLOKI-USD", "name": "Floki", "cat": "Crypto"},
-            {"epic": "FETUSD", "yf": "FET-USD", "name": "Fetch.ai", "cat": "Crypto"},
-            {"epic": "RENDERUSD", "yf": "RNDR-USD", "name": "Render", "cat": "Crypto"},
-            {"epic": "STXUSD", "yf": "STX-USD", "name": "Stacks", "cat": "Crypto"},
-            {"epic": "EGLDUSD", "yf": "EGLD-USD", "name": "MultiversX", "cat": "Crypto"},
+            {"epic": "ICPUSD", "yf": "ICP-USD", "name": "Internet Computer", "cat": "Crypto"},
+            {"epic": "TRXUSD", "yf": "TRX-USD", "name": "Tron", "cat": "Crypto"},
             {"epic": "FLOWUSD", "yf": "FLOW-USD", "name": "Flow", "cat": "Crypto"},
-            {"epic": "CHZUSD", "yf": "CHZ-USD", "name": "Chiliz", "cat": "Crypto"},
-            {"epic": "ZILUSD", "yf": "ZIL-USD", "name": "Zilliqa", "cat": "Crypto"},
-            {"epic": "KASUSD", "yf": "KAS-USD", "name": "Kaspa", "cat": "Crypto"},
+            {"epic": "IMXUSD", "yf": "IMX-USD", "name": "Immutable X", "cat": "Crypto"},
         ]
-        # Total: 50 crypto aktiv
+        # Total: 50 crypto (ztrátové: AAVE, HBAR, ALGO, INJ, FIL, LINK, MKR, FLOKI = blacklist)
         
         # Pass protected list to Learning Engine to prevent auto-ban
         self.protected_tickers = [t["yf"] for t in self.priority_tickers]
@@ -1411,8 +1405,8 @@ class TradingBot:
             # ========================================
             # CONFIDENCE CHECK - kvalita nad kvantitou (profit)
             # ========================================
-            # v7.0: Jen quality setupy — 0.65 pro více obchodů (backtest ukázal profitabilitu)
-            MIN_CONFIDENCE = 0.65 if PROFIT_MODE else 0.60
+            # v4.0 CRYPTO PERFECT: 0.68 min confidence (quality > quantity)
+            MIN_CONFIDENCE = 0.68 if PROFIT_MODE else 0.60
             confidence = result.get("confidence", 0)
             
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
@@ -1642,7 +1636,7 @@ class TradingBot:
                             info = self.client.get_instrument_info(t212_ticker)
                             bid, offer = info.get('bid', 0), info.get('offer', 0)
                             if bid > 0 and offer > 0 and last_price > 0:
-                                MAX_SLIPPAGE_PCT = 0.004  # max 0.4% horší než signál
+                                MAX_SLIPPAGE_PCT = 0.003  # v4.0: max 0.3% horší — nekupuj ve ztrátě
                                 if signal == "BUY":
                                     fill_price = offer
                                     slippage_pct = (fill_price - last_price) / last_price
