@@ -373,9 +373,10 @@ class CapitalClient:
         
         Returns:
             dict s výsledkem nebo None
+        
+        v2.0: Fix retry bug - check position size before/after to avoid duplicate closes
         """
         # Capital.com API: Pro partial close musíme otevřít opačnou pozici
-        # Alternativně některé API to podporují přes PUT s novým size
         endpoint = f"{self.base_url}/api/v1/positions/{deal_id}"
         
         # Nejdřív získej info o pozici
@@ -389,25 +390,76 @@ class CapitalClient:
                     break
             
             if not target_pos:
-                print(f"Position {deal_id} not found")
+                print(f"⚠️ Position {deal_id} not found (already closed?)")
                 return None
             
             market = target_pos.get('market', {})
             pos_data = target_pos.get('position', {})
             epic = market.get('epic')
             direction = pos_data.get('direction')
-            current_size = pos_data.get('size', 0)
+            original_size = pos_data.get('size', 0)
             
-            if reduce_size >= current_size:
+            print(f"📊 Reducing position {deal_id}: {epic} | Current size: {original_size} | Reduce by: {reduce_size}")
+            
+            if reduce_size >= original_size:
                 # Zavři celou pozici
+                print(f"🔄 Reduce size >= position size, closing entire position")
                 return self.close_position(deal_id)
             
             # Otevři opačnou pozici pro partial close
             opposite_dir = "SELL" if direction == "BUY" else "BUY"
-            result = self.place_market_order(epic, reduce_size, direction=opposite_dir)
             
-            print(f"✅ Partial close: {reduce_size} of {epic} ({opposite_dir})")
-            return result
+            # Smart retry: pokud place_market_order selže, zkontroluj jestli se pozice nezmenšila
+            last_error = None
+            for attempt in range(3):
+                try:
+                    print(f"🔄 Partial close attempt {attempt + 1}/3: {reduce_size} {opposite_dir} {epic}")
+                    result = self.place_market_order(epic, reduce_size, direction=opposite_dir)
+                    
+                    if result:
+                        print(f"✅ Partial close successful: {reduce_size} of {epic} ({opposite_dir})")
+                        return result
+                    else:
+                        last_error = "place_market_order returned None"
+                        print(f"⚠️ Attempt {attempt + 1}/3 failed: {last_error}")
+                        
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"⚠️ Attempt {attempt + 1}/3 failed with error: {last_error}")
+                
+                # CRITICAL FIX: Před retry zkontroluj, jestli se pozice nezmenšila
+                # (může se stát, že API neodpovědělo ale objednávka proběhla)
+                print(f"🔍 Verifying if partial close already executed...")
+                time.sleep(1)  # Dej API čas na update
+                
+                updated_positions = self.get_positions()
+                updated_pos = None
+                for p in updated_positions:
+                    if p.get('position', {}).get('dealId') == deal_id:
+                        updated_pos = p
+                        break
+                
+                if not updated_pos:
+                    print(f"✅ Position {deal_id} no longer exists (fully closed)")
+                    return {"status": "closed", "note": "Position closed during retry"}
+                
+                updated_size = updated_pos.get('position', {}).get('size', 0)
+                
+                if updated_size < original_size:
+                    size_diff = original_size - updated_size
+                    print(f"✅ Position already reduced! Was {original_size}, now {updated_size} (diff: {size_diff})")
+                    print(f"   Partial close succeeded despite API error")
+                    return {"status": "success", "size_reduced": size_diff, "new_size": updated_size}
+                
+                # Pozice se nezměnila, zkus retry (pokud nejsme na posledním pokusu)
+                if attempt < 2:
+                    wait_time = 2 ** attempt
+                    print(f"🔄 Position unchanged, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+            
+            # Všechny pokusy selhaly
+            print(f"❌ Partial close FAILED after 3 attempts: {last_error}")
+            return None
             
         except Exception as e:
             print(f"❌ Reduce position error: {e}")
