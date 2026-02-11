@@ -207,8 +207,8 @@ class TradingBot:
             "INJUSD", "INJ-USD", "FILUSD", "FIL-USD", "LINKUSD", "LINK-USD",
             "MKRUSD", "MKR-USD", "FLOKUSD", "FLOKI-USD",
         ]
-        # Forex skip – prázdné = bot skenuje vše a sám vybírá nejlepší (learning)
-        self.forex_skip_for_profit = []
+        # Forex disabled (v6.0 CRYPTO ONLY) - max_forex_positions = 0
+        self.forex_skip_for_profit = []  # Not used - forex trading disabled
         
         # =====================================================
         # WATCHLIST – 50 CRYPTO (v4.0 PERFECT) — TOP performers first
@@ -287,7 +287,7 @@ class TradingBot:
         self.kelly_fraction = 0.25    # 25% Kelly (konzervativní)
 
         # Correlation filter (v5.0: prioritize crypto for bigger moves)
-        self.max_forex_positions = 3   # v5.0: was 2
+        self.max_forex_positions = 0   # v6.0 CRYPTO ONLY - forex disabled (poor backtest results)
         self.max_crypto_positions = 5  # v7.0: crypto = ONLY profit source, max 5 pozic
         self.max_stock_positions = 1
 
