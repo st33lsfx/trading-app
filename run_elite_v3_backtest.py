@@ -206,7 +206,7 @@ def main():
     ap.add_argument("--period", default="60d", help="Období (60d, 1y)")
     ap.add_argument("--interval", default="15m", help="Timeframe (15m, 1h)")
     ap.add_argument("--capital", type=float, default=10_000, help="Počáteční kapitál")
-    ap.add_argument("--risk", type=float, default=0.02, help="Riziko na obchod (0.02 = 2%%)")
+    ap.add_argument("--risk", type=float, default=0.005, help="Riziko na obchod (0.005 = 0.5%%, 0.01 = 1%%)")
     ap.add_argument("--list", action="store_true", help="Spustit na seznamu Elite 15")
     ap.add_argument("--forex", action="store_true", help="Spustit jen na forex párech")
     ap.add_argument("--fast", action="store_true", help="Rychlejší: signál jen každé 4 bary (méně obchodů)")

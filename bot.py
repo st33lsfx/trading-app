@@ -125,12 +125,12 @@ class TradingBot:
             "hma_fast": 9,
             "hma_slow": 21,
             "min_confluence": 3,
-            # Session VP + VWAP + SMC + Big Trades (elite_v3)
+            # Session VP + VWAP (elite_v3) – vyvážené pro obchody + zisk
             "use_session_vp": True,
             "vp_lookback": 288,
             "min_session_bars_for_vp": 5,
-            "min_rvol_big_trade": 1.2,   # vstup jen při vyšším objemu (big trades)
-            "use_smc_structure": True,    # Smart Money: swing high/low
+            "min_rvol_big_trade": 0.9,    # 0.9 = blízko průměru (1.2 = příliš málo signálů)
+            "use_smc_structure": False,   # OFF = více obchodů; zapnout jen při ověření
             "pivot_len": 5,
         }
         
@@ -188,6 +188,8 @@ class TradingBot:
             "LTCUSD", "LTC-USD", # Still choppy often
             "Si=F", "Silver", # Spreads
         ]
+        # Forex páry s horšími výsledky v backtestu – vynechat pro profit
+        self.forex_skip_for_profit = ["EURGBP=X", "GBPJPY=X", "EURJPY=X", "NZDUSD=X", "AUDUSD=X"]
         
         # =====================================================
         # ELITE 15 WATCHLIST - The 15 Best Assets (Forex & Crypto)
@@ -200,14 +202,14 @@ class TradingBot:
             {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto"}, # Added
             {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto"},       # Unblacklisted
 
-            # === FOREX MAJORS (Reliable Liquidity for VP) ===
-            {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD", "cat": "Forex"},
+            # === FOREX (priorita: USDCAD, USDCHF, GBPUSD – backtest 30d) ===
+            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "cat": "Forex"},
+            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "cat": "Forex"},
             {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "cat": "Forex"},
+            {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD", "cat": "Forex"},
             {"epic": "USDJPY", "yf": "USDJPY=X", "name": "USD/JPY", "cat": "Forex"},
             {"epic": "AUDUSD", "yf": "AUDUSD=X", "name": "AUD/USD", "cat": "Forex"},
-            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "cat": "Forex"},
             {"epic": "NZDUSD", "yf": "NZDUSD=X", "name": "NZD/USD", "cat": "Forex"},
-            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "cat": "Forex"},
 
             # === FOREX CROSSES (Structure) ===
             {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "cat": "Forex"},
@@ -1126,6 +1128,9 @@ class TradingBot:
                     # Skip blacklisted
                     if self.is_blacklisted(pt['yf']) or self.is_blacklisted(pt['epic']):
                         continue
+                    # Skip forex páry s horšími výsledky (profit mode)
+                    if pt_cat == "Forex" and pt['yf'] in getattr(self, 'forex_skip_for_profit', []):
+                        continue
                     self.open_instruments.append({
                         "epic": pt['epic'],
                         "yf": pt['yf'],
@@ -1142,6 +1147,8 @@ class TradingBot:
                 if hasattr(self, 'priority_tickers'):
                     for pt in self.priority_tickers:
                         if self.is_blacklisted(pt['yf']):
+                            continue
+                        if pt.get('cat') == "Forex" and pt['yf'] in getattr(self, 'forex_skip_for_profit', []):
                             continue
                         self.open_instruments.append({
                             "epic": pt['epic'],
@@ -1344,9 +1351,9 @@ class TradingBot:
                  self.log(f"[{yf_ticker}] Skipped (RSI {rsi:.2f}): {reason}")
             
             # ========================================
-            # CONFIDENCE CHECK - Sníženo pro více obchodů
+            # CONFIDENCE CHECK - kvalita nad kvantitou (profit)
             # ========================================
-            MIN_CONFIDENCE = 0.55  # Sníženo z 0.6 - více signálů projde
+            MIN_CONFIDENCE = 0.60  # 0.6 = jen silnější setupy
             confidence = result.get("confidence", 0)
             
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:

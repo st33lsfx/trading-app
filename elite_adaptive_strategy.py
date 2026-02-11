@@ -35,11 +35,11 @@ class EliteAdaptiveStrategy:
         self.tp_rr = self.config.get('tp_rr', 2.0)
         self.sl_atr = self.config.get('sl_atr', self.config.get('atr_sl_mult', 2.0))
         
-        # Big Trades: vstup jen když objem je nad průměrem (smart money aktivní)
-        self.min_rvol = self.config.get('min_rvol_big_trade', 1.2)
-        # SMC: pivot length pro swing high/low
+        # Big Trades: crypto vyžaduje RVol >= 0.9 (blízko průměru); příliš vysoké = 0 obchodů
+        self.min_rvol = self.config.get('min_rvol_big_trade', 0.9)
+        # SMC: swing high/low - default OFF (neprověřené, blokuje příliš mnoho setupů)
         self.pivot_len = self.config.get('pivot_len', 5)
-        self.use_smc = self.config.get('use_smc_structure', True)
+        self.use_smc = self.config.get('use_smc_structure', False)
         
         self.last_vp = None
         self.last_regime = "NEUTRAL"
@@ -217,6 +217,7 @@ class EliteAdaptiveStrategy:
         
         # 6. EMA Trend Filter
         df['EMA_200'] = EMAIndicator(df['Close'], window=200).ema_indicator()
+        df['EMA_20'] = EMAIndicator(df['Close'], window=20).ema_indicator()
         
         return df
 
@@ -262,10 +263,8 @@ class EliteAdaptiveStrategy:
         # --- Big Trades: vstup jen při zvýšeném objemu (nebo u forexu při větším range) ---
         vol_confirmed = curr["RVol"] >= self.min_rvol
         if not vol_confirmed and (curr.get("RVol", 0) == 0 or pd.isna(curr.get("RVol"))):
-            # Forex často nemá Volume; filtr "big bar": rozsah svíčky >= průměr (významný pohyb)
-            bar_range = curr["High"] - curr["Low"]
-            avg_range = df["High"].sub(df["Low"]).rolling(20).mean().iloc[-1] if len(df) >= 20 else bar_range
-            vol_confirmed = avg_range > 0 and bar_range >= avg_range
+            # Forex bez Volume: povolíme (test 30d), ostatní filtry (zóna, premium/discount, PA) zůstávají
+            vol_confirmed = True
         vwap = curr["VWAP"]
         close_px = curr["Close"]
 
@@ -313,31 +312,34 @@ class EliteAdaptiveStrategy:
                     reason = "Trend Pullback to VWAP (Short)"
                     setup_type = "Trend_Pullback"
 
-        # --- RANGE: pouze v správné zóně (Discount = long, Premium = short) + Big Trades ---
-        elif is_range and vol_confirmed:
-            near_val = abs(curr["Low"] - val) <= atr_half or (curr["Close"] <= val + atr_ and curr["Low"] <= val + atr_)
-            near_vah = abs(curr["High"] - vah) <= atr_half or (curr["Close"] >= vah - atr_ and curr["High"] >= vah - atr_)
+        # --- RANGE: vstup u VAL/VAH, v zóně hodnoty. Vyhýbáme se velmi slabému ADX (choppy). ---
+        elif is_range and vol_confirmed and curr["ADX"] >= 12:
+            near_val = abs(curr["Low"] - val) <= atr_ or (curr["Close"] <= val + atr_ and curr["Low"] <= val + atr_)
+            near_vah = abs(curr["High"] - vah) <= atr_ or (curr["Close"] >= vah - atr_ and curr["High"] >= vah - atr_)
+            # Value zone: long pod POC (discount), short nad POC (premium). POC = fair value.
+            in_value_long = in_discount or curr["Close"] <= poc
+            in_value_short = in_premium or curr["Close"] >= poc
 
-            # LONG jen v DISCOUNT (pod VWAP) a u VAL nebo VWAP Lower. SMC: preferovat u swing low.
-            if in_discount and near_val and is_bullish and curr["RSI"] < 50:
+            # LONG: u VAL, v value zone, bullish, RSI oversold (< 50)
+            if in_value_long and near_val and is_bullish and curr["RSI"] < 50:
                 if not self.use_smc or near_swing_low:
                     signal = "BUY"
-                    reason = f"Range BUY @ VAL discount ({val:.2f})"
+                    reason = f"Range BUY @ VAL ({val:.2f})"
                     setup_type = "Mean_Reversion"
-            if signal == "NEUTRAL" and in_discount and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 45:
+            if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 48:
                 signal = "BUY"
-                reason = "Range BUY @ VWAP Lower (discount)"
+                reason = "Range BUY @ VWAP Lower"
                 setup_type = "Mean_Reversion"
 
-            # SHORT jen v PREMIUM (nad VWAP) a u VAH nebo VWAP Upper. SMC: preferovat u swing high.
-            if signal == "NEUTRAL" and in_premium and near_vah and is_bearish and curr["RSI"] > 50:
+            # SHORT: u VAH, v premium, bearish, RSI overbought (> 50)
+            if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 50:
                 if not self.use_smc or near_swing_high:
                     signal = "SELL"
-                    reason = f"Range SELL @ VAH premium ({vah:.2f})"
+                    reason = f"Range SELL @ VAH ({vah:.2f})"
                     setup_type = "Mean_Reversion"
-            if signal == "NEUTRAL" and in_premium and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 55:
+            if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 52:
                 signal = "SELL"
-                reason = "Range SELL @ VWAP Upper (premium)"
+                reason = "Range SELL @ VWAP Upper"
                 setup_type = "Mean_Reversion"
 
         # --- RISK MANAGEMENT (SL/TP) ---
@@ -370,9 +372,10 @@ class EliteAdaptiveStrategy:
             sl_price = close - (atr * used_sl_mult)
             if setup_type == "Trend_Pullback":
                 sl_price = min(sl_price, curr['Low'] - atr)
-            # Range: cíl POC, pokud je pod cenou pak VAH
             if setup_type == "Mean_Reversion":
-                tp_price = poc if poc > close else vah
+                sl_price = min(sl_price, val - atr * 1.0)
+                # TP na VAH (full range R:R) – min. 1:1
+                tp_price = max(vah, close + (close - sl_price))
             else:
                 tp_dist = (close - sl_price) * used_tp_rr
                 tp_price = close + tp_dist
@@ -381,9 +384,10 @@ class EliteAdaptiveStrategy:
             sl_price = close + (atr * used_sl_mult)
             if setup_type == "Trend_Pullback":
                 sl_price = max(sl_price, curr['High'] + atr)
-            # Range: cíl POC, pokud je nad cenou pak VAL
             if setup_type == "Mean_Reversion":
-                tp_price = poc if poc < close else val
+                sl_price = max(sl_price, vah + atr * 1.0)
+                # TP na VAL – min. 1:1 R:R
+                tp_price = min(val, close - (sl_price - close))
             else:
                 tp_dist = (sl_price - close) * used_tp_rr
                 tp_price = close - tp_dist
