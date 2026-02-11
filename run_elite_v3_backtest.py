@@ -24,6 +24,13 @@ DEFAULT_CONFIG = {
 }
 
 
+def get_forex_config():
+    """Konfig pro forex: jen range mean reversion (trend breakouts často ztrátové)."""
+    c = dict(DEFAULT_CONFIG)
+    c["forex_range_only"] = True
+    return c
+
+
 def fetch_data(ticker: str, period: str = "60d", interval: str = "15m") -> pd.DataFrame:
     try:
         df = yf.download(
@@ -206,7 +213,7 @@ def main():
     ap.add_argument("--period", default="60d", help="Období (60d, 1y)")
     ap.add_argument("--interval", default="15m", help="Timeframe (15m, 1h)")
     ap.add_argument("--capital", type=float, default=10_000, help="Počáteční kapitál")
-    ap.add_argument("--risk", type=float, default=0.005, help="Riziko na obchod (0.005 = 0.5%%, 0.01 = 1%%)")
+    ap.add_argument("--risk", type=float, default=0.003, help="Riziko na obchod (0.003 = 0.3%%, 0.005 = 0.5%%)")
     ap.add_argument("--list", action="store_true", help="Spustit na seznamu Elite 15")
     ap.add_argument("--forex", action="store_true", help="Spustit jen na forex párech")
     ap.add_argument("--fast", action="store_true", help="Rychlejší: signál jen každé 4 bary (méně obchodů)")
@@ -220,11 +227,12 @@ def main():
             "NZDUSD=X", "USDCHF=X", "EURGBP=X", "GBPJPY=X", "EURJPY=X",
         ]
         period = args.period if args.period != "60d" else "30d"
-        print("=== BACKTEST ELITE V3 — FOREX (Session VP) ===\n")
+        print("=== BACKTEST ELITE V3 — FOREX (Session VP, range-only) ===\n")
         results = []
+        fconfig = get_forex_config()
         for t in tickers:
             print(f"  {t}...", end=" ", flush=True)
-            r = run_backtest(t, period=period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk, signal_every_n=signal_every_n)
+            r = run_backtest(t, period=period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk, signal_every_n=signal_every_n, config=fconfig)
             if "error" in r:
                 print(r["error"])
             else:

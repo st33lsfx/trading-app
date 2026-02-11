@@ -40,6 +40,8 @@ class EliteAdaptiveStrategy:
         # SMC: swing high/low - default OFF (neprověřené, blokuje příliš mnoho setupů)
         self.pivot_len = self.config.get('pivot_len', 5)
         self.use_smc = self.config.get('use_smc_structure', False)
+        # Forex: jen mean reversion u VAL/VAH (trend breakouts na forexu často selhávají)
+        self.forex_range_only = self.config.get('forex_range_only', False)
         
         self.last_vp = None
         self.last_regime = "NEUTRAL"
@@ -291,7 +293,8 @@ class EliteAdaptiveStrategy:
             confidence += 0.1
 
         # --- TREND: breakouts s volume, pullback k VWAP v trendu ---
-        if is_trend:
+        # forex_range_only: skip trend – obchodujeme jen VAL/VAH mean reversion
+        if is_trend and not self.forex_range_only:
             if curr["Close"] > curr["EMA_200"] and curr["Close"] > vwap and di_bullish:
                 if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and 50 < curr["RSI"] < 70:
                     signal = "BUY"
@@ -320,24 +323,24 @@ class EliteAdaptiveStrategy:
             in_value_long = in_discount or curr["Close"] <= poc
             in_value_short = in_premium or curr["Close"] >= poc
 
-            # LONG: u VAL, v value zone, bullish, RSI oversold (< 50)
-            if in_value_long and near_val and is_bullish and curr["RSI"] < 50:
+            # LONG: RSI oversold (< 45) – kvalita nad kvantitou
+            if in_value_long and near_val and is_bullish and curr["RSI"] < 45:
                 if not self.use_smc or near_swing_low:
                     signal = "BUY"
                     reason = f"Range BUY @ VAL ({val:.2f})"
                     setup_type = "Mean_Reversion"
-            if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 48:
+            if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 42:
                 signal = "BUY"
                 reason = "Range BUY @ VWAP Lower"
                 setup_type = "Mean_Reversion"
 
-            # SHORT: u VAH, v premium, bearish, RSI overbought (> 50)
-            if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 50:
+            # SHORT: RSI overbought (> 55)
+            if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 55:
                 if not self.use_smc or near_swing_high:
                     signal = "SELL"
                     reason = f"Range SELL @ VAH ({vah:.2f})"
                     setup_type = "Mean_Reversion"
-            if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 52:
+            if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 58:
                 signal = "SELL"
                 reason = "Range SELL @ VWAP Upper"
                 setup_type = "Mean_Reversion"
@@ -391,6 +394,21 @@ class EliteAdaptiveStrategy:
             else:
                 tp_dist = (sl_price - close) * used_tp_rr
                 tp_price = close - tp_dist
+
+        # Min R:R 1.0 – skip jen ztrátové setupy (mean reversion u VAL/VAH často 1:1)
+        min_rr = 1.0
+        if signal == "BUY":
+            risk = close - sl_price
+            reward = tp_price - close
+            rr = reward / risk if risk > 0 else 0
+        elif signal == "SELL":
+            risk = sl_price - close
+            reward = close - tp_price
+            rr = reward / risk if risk > 0 else 0
+        else:
+            rr = 2.0
+        if rr < min_rr:
+            return {'signal': 'NEUTRAL', 'reason': f'R:R {rr:.2f} < {min_rr}', 'rsi': float(curr['RSI']), 'adx': float(curr['ADX']), 'regime': self.last_regime}
             
         return {
             'signal': signal,

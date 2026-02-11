@@ -1362,7 +1362,7 @@ class TradingBot:
             # ========================================
             # CONFIDENCE CHECK - kvalita nad kvantitou (profit)
             # ========================================
-            MIN_CONFIDENCE = 0.60  # 0.6 = jen silnější setupy
+            MIN_CONFIDENCE = 0.65  # přísnější = jen kvalitní setupy
             confidence = result.get("confidence", 0)
             
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
