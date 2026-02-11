@@ -262,11 +262,13 @@ class EliteAdaptiveStrategy:
         reason = "No Setup"
         setup_type = ""
 
-        # --- Big Trades: vstup jen při zvýšeném objemu (nebo u forexu při větším range) ---
+        # --- Big Trades: vstup jen při zvýšeném objemu ---
+        # Forex: RVol často 0.3-0.8 (syntetický z range), takže snížíme limit na 0.5
         vol_confirmed = curr["RVol"] >= self.min_rvol
-        if not vol_confirmed and (curr.get("RVol", 0) == 0 or pd.isna(curr.get("RVol"))):
-            # Forex bez Volume: povolíme (test 30d), ostatní filtry (zóna, premium/discount, PA) zůstávají
-            vol_confirmed = True
+        if not vol_confirmed:
+            # Forex: povolíme i nízký RVol (>= 0.5), protože Volume je syntetický
+            if curr.get("RVol", 0) == 0 or pd.isna(curr.get("RVol")) or curr["RVol"] >= 0.5:
+                vol_confirmed = True
         vwap = curr["VWAP"]
         close_px = curr["Close"]
 
@@ -317,8 +319,11 @@ class EliteAdaptiveStrategy:
 
         # --- RANGE: vstup u VAL/VAH, v zóně hodnoty. Vyhýbáme se velmi slabému ADX (choppy). ---
         elif is_range and vol_confirmed and curr["ADX"] >= 12:
-            near_val = abs(curr["Low"] - val) <= atr_ or (curr["Close"] <= val + atr_ and curr["Low"] <= val + atr_)
-            near_vah = abs(curr["High"] - vah) <= atr_ or (curr["Close"] >= vah - atr_ and curr["High"] >= vah - atr_)
+            # Zpřísněné podmínky: close musí být v zóně, ne moc daleko od VAL/VAH
+            # BUY: close mezi VAL-0.5ATR a VAL+0.3ATR (blízko support, ale ne moc pod)
+            # SELL: close mezi VAH-0.3ATR a VAH+0.5ATR (blízko resistance, ale ne moc nad)
+            near_val = (val - atr_ * 0.5) <= curr["Close"] <= (val + atr_ * 0.3) and curr["Low"] <= val + atr_ * 0.5
+            near_vah = (vah - atr_ * 0.3) <= curr["Close"] <= (vah + atr_ * 0.5) and curr["High"] >= vah - atr_ * 0.5
             # Value zone: long pod POC (discount), short nad POC (premium). POC = fair value.
             in_value_long = in_discount or curr["Close"] <= poc
             in_value_short = in_premium or curr["Close"] >= poc
@@ -376,9 +381,12 @@ class EliteAdaptiveStrategy:
             if setup_type == "Trend_Pullback":
                 sl_price = min(sl_price, curr['Low'] - atr)
             if setup_type == "Mean_Reversion":
-                sl_price = min(sl_price, val - atr * 1.0)
-                # TP na VAH (full range R:R) – min. 1:1
-                tp_price = max(vah, close + (close - sl_price))
+                # SL pod VAL, ale respektuj used_sl_mult (ne fixní 1.0)
+                sl_price = min(sl_price, val - atr * 0.5)
+                risk = close - sl_price
+                # TP: min 1.2:1 R:R (kvalitnější mean reversion)
+                min_reward = risk * 1.2
+                tp_price = max(vah, close + min_reward)
             else:
                 tp_dist = (close - sl_price) * used_tp_rr
                 tp_price = close + tp_dist
@@ -388,9 +396,12 @@ class EliteAdaptiveStrategy:
             if setup_type == "Trend_Pullback":
                 sl_price = max(sl_price, curr['High'] + atr)
             if setup_type == "Mean_Reversion":
-                sl_price = max(sl_price, vah + atr * 1.0)
-                # TP na VAL – min. 1:1 R:R
-                tp_price = min(val, close - (sl_price - close))
+                # SL nad VAH, ale respektuj used_sl_mult
+                sl_price = max(sl_price, vah + atr * 0.5)
+                risk = sl_price - close
+                # TP: min 1.2:1 R:R
+                min_reward = risk * 1.2
+                tp_price = min(val, close - min_reward)
             else:
                 tp_dist = (sl_price - close) * used_tp_rr
                 tp_price = close - tp_dist

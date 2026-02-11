@@ -25,9 +25,13 @@ DEFAULT_CONFIG = {
 
 
 def get_forex_config():
-    """Konfig pro forex: jen range mean reversion (trend breakouts často ztrátové)."""
+    """Konfig pro forex: composite VP, jen range mean reversion, wider SL."""
     c = dict(DEFAULT_CONFIG)
     c["forex_range_only"] = True
+    c["use_session_vp"] = False  # composite VP = stabilnější VAL/VAH na 96 barů
+    c["vp_lookback"] = 96  # ~1 den na 15m
+    c["sl_atr"] = 6.0  # wider SL pro forex volatilitu + spread
+    c["tp_rr"] = 1.5  # nižší R:R = vyšší šance na TP hit
     return c
 
 

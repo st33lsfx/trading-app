@@ -57,12 +57,12 @@ DRAWDOWN_EMERGENCY_PCT = 8.0   # Emergency stop at 8% drawdown
 
 SL_PCT = 0.01              # Fallback
 TP_PCT = 0.02              # Fallback
-MAX_SCAN_PER_CYCLE = 25    # Skenuje všech 25 aktiv (Forex + Crypto)
+MAX_SCAN_PER_CYCLE = 25    # Skenuje všech 25 crypto aktiv
 INTERVAL = "15m"           # 15m timeframe for Scalping/DayTrading
 PERIOD = "30d"             # 30 dní – aktuálnější data (ne rok stará)
 
 # Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
-TARGET_WATCHLIST_SIZE = 25 # 25 aktiv (Forex + Crypto)
+TARGET_WATCHLIST_SIZE = 25 # 25 crypto aktiv
 MIN_TRADES_FOR_RANK = 3
 
 # Rozpočet (CZK) – bot přizpůsobí velikost obchodů
@@ -196,17 +196,17 @@ class TradingBot:
         self.forex_skip_for_profit = []
         
         # =====================================================
-        # WATCHLIST – jen Forex + Crypto (25 aktiv)
+        # WATCHLIST – JEN CRYPTO (VP funguje na skutečném volume)
         # =====================================================
         self.priority_tickers = [
-            # === CRYPTO (15) ===
+            # === TOP CRYPTO (25) ===
             {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "cat": "Crypto"},
             {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "cat": "Crypto"},
             {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto"},
             {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto"},
             {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto"},
-            {"epic": "DOGEUSD", "yf": "DOGE-USD", "name": "Dogecoin", "cat": "Crypto"},
             {"epic": "ADAUSD", "yf": "ADA-USD", "name": "Cardano", "cat": "Crypto"},
+            {"epic": "DOGEUSD", "yf": "DOGE-USD", "name": "Dogecoin", "cat": "Crypto"},
             {"epic": "AVAXUSD", "yf": "AVAX-USD", "name": "Avalanche", "cat": "Crypto"},
             {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "cat": "Crypto"},
             {"epic": "MATICUSD", "yf": "MATIC-USD", "name": "Polygon", "cat": "Crypto"},
@@ -215,19 +215,18 @@ class TradingBot:
             {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "Near Protocol", "cat": "Crypto"},
             {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "cat": "Crypto"},
             {"epic": "XLMUSD", "yf": "XLM-USD", "name": "Stellar", "cat": "Crypto"},
-            # === FOREX (10) ===
-            {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD", "cat": "Forex"},
-            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "cat": "Forex"},
-            {"epic": "USDJPY", "yf": "USDJPY=X", "name": "USD/JPY", "cat": "Forex"},
-            {"epic": "AUDUSD", "yf": "AUDUSD=X", "name": "AUD/USD", "cat": "Forex"},
-            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "cat": "Forex"},
-            {"epic": "NZDUSD", "yf": "NZDUSD=X", "name": "NZD/USD", "cat": "Forex"},
-            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "cat": "Forex"},
-            {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "cat": "Forex"},
-            {"epic": "GBPJPY", "yf": "GBPJPY=X", "name": "GBP/JPY", "cat": "Forex"},
-            {"epic": "EURJPY", "yf": "EURJPY=X", "name": "EUR/JPY", "cat": "Forex"},
+            {"epic": "LTCUSD", "yf": "LTC-USD", "name": "Litecoin", "cat": "Crypto"},
+            {"epic": "TRXUSD", "yf": "TRX-USD", "name": "Tron", "cat": "Crypto"},
+            {"epic": "ICPUSD", "yf": "ICP-USD", "name": "Internet Computer", "cat": "Crypto"},
+            {"epic": "APTUSD", "yf": "APT-USD", "name": "Aptos", "cat": "Crypto"},
+            {"epic": "FTMUSD", "yf": "FTM-USD", "name": "Fantom", "cat": "Crypto"},
+            {"epic": "ALGOUSD", "yf": "ALGO-USD", "name": "Algorand", "cat": "Crypto"},
+            {"epic": "VETUSD", "yf": "VET-USD", "name": "VeChain", "cat": "Crypto"},
+            {"epic": "GRTUSD", "yf": "GRT-USD", "name": "The Graph", "cat": "Crypto"},
+            {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto"},
+            {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto"},
         ]
-        # Total: 25 aktiv (Forex + Crypto)
+        # Total: 25 crypto aktiv (reálný volume pro VP)
         
         # Pass protected list to Learning Engine to prevent auto-ban
         self.protected_tickers = [t["yf"] for t in self.priority_tickers]
@@ -321,7 +320,7 @@ class TradingBot:
             
             # Default active categories (Indices disabled - poor backtest results)
             if not hasattr(self, 'active_categories'):
-                self.active_categories = ["Forex", "Crypto"]
+                self.active_categories = ["Crypto"]  # Jen Crypto - VP funguje na skutečném volume
 
             self.scan_all_markets()
         
@@ -1362,7 +1361,7 @@ class TradingBot:
             # ========================================
             # CONFIDENCE CHECK - kvalita nad kvantitou (profit)
             # ========================================
-            MIN_CONFIDENCE = 0.65  # přísnější = jen kvalitní setupy
+            MIN_CONFIDENCE = 0.60  # 0.6 = silnější setupy (crypto má více signálů než forex)
             confidence = result.get("confidence", 0)
             
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
