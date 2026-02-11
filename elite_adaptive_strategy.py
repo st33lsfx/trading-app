@@ -350,28 +350,43 @@ class EliteAdaptiveStrategy:
                         reason = "Forex: VWAP Upper Rejection"
                         setup_type = "Mean_Reversion"
         
-        # ========== CRYPTO MODE: VP Strategy (original) ==========
-        # --- TREND: breakouts s volume, pullback k VWAP v trendu ---
-        # forex_range_only: skip trend – obchodujeme jen VAL/VAH mean reversion
+        # ========== CRYPTO MODE: VP Strategy ==========
+        # --- TREND: Více setupů - breakouts, pullbacks, continuation ---
         elif is_trend and not self.forex_range_only:
+            # UPTREND setupy (Close > EMA200, Close > VWAP)
             if curr["Close"] > curr["EMA_200"] and curr["Close"] > vwap and di_bullish:
+                # 1. Breakout NAD VAH
                 if prev["Close"] < vah and curr["Close"] > vah and vol_confirmed and 50 < curr["RSI"] < 70:
                     signal = "BUY"
                     reason = f"Trend Breakout > VAH ({vah:.2f})"
                     setup_type = "Trend_Breakout"
+                # 2. Pullback k VWAP
                 elif abs(curr["Low"] - vwap) < atr_half and is_bullish and curr["RSI"] > 40 and vol_confirmed:
                     signal = "BUY"
                     reason = "Trend Pullback to VWAP"
                     setup_type = "Trend_Pullback"
+                # 3. Pullback k EMA20 (nový setup)
+                elif signal == "NEUTRAL" and abs(curr["Low"] - curr["EMA_20"]) < atr_half and is_bullish and 45 < curr["RSI"] < 65:
+                    signal = "BUY"
+                    reason = "Trend Pullback to EMA20"
+                    setup_type = "Trend_Pullback"
 
+            # DOWNTREND setupy (Close < EMA200, Close < VWAP)
             elif curr["Close"] < curr["EMA_200"] and curr["Close"] < vwap and di_bearish:
+                # 1. Breakdown POD VAL
                 if prev["Close"] > val and curr["Close"] < val and vol_confirmed and 30 < curr["RSI"] < 50:
                     signal = "SELL"
                     reason = f"Trend Breakdown < VAL ({val:.2f})"
                     setup_type = "Trend_Breakout"
+                # 2. Pullback k VWAP
                 elif abs(curr["High"] - vwap) < atr_half and is_bearish and curr["RSI"] < 60 and vol_confirmed:
                     signal = "SELL"
                     reason = "Trend Pullback to VWAP (Short)"
+                    setup_type = "Trend_Pullback"
+                # 3. Pullback k EMA20 (nový setup)
+                elif signal == "NEUTRAL" and abs(curr["High"] - curr["EMA_20"]) < atr_half and is_bearish and 35 < curr["RSI"] < 55:
+                    signal = "SELL"
+                    reason = "Trend Pullback to EMA20 (Short)"
                     setup_type = "Trend_Pullback"
 
         # --- RANGE: vstup u VAL/VAH, v zóně hodnoty. Vyhýbáme se velmi slabému ADX (choppy). ---

@@ -68,6 +68,7 @@ MIN_TRADES_FOR_RANK = 3
 # Rozpočet (CZK) – bot přizpůsobí velikost obchodů
 INITIAL_CAPITAL_CZK = 2000
 TRADE_RISK_PCT = 0.05   # 5% kapitálu na obchod (2000 * 0.05 = 100 CZK)
+USD_TO_CZK_RATE = 23.0  # Aktuální kurz USD/CZK (Capital.com je v USD!)
 
 from capital_client import CapitalClient
 
@@ -219,15 +220,12 @@ class TradingBot:
             {"epic": "LTCUSD", "yf": "LTC-USD", "name": "Litecoin", "cat": "Crypto"},
             {"epic": "TRXUSD", "yf": "TRX-USD", "name": "Tron", "cat": "Crypto"},
             {"epic": "ICPUSD", "yf": "ICP-USD", "name": "Internet Computer", "cat": "Crypto"},
-            {"epic": "APTUSD", "yf": "APT-USD", "name": "Aptos", "cat": "Crypto"},
-            {"epic": "FTMUSD", "yf": "FTM-USD", "name": "Fantom", "cat": "Crypto"},
+            # Delisted: APT, FTM, GRT, MATIC, UNI, MANA
             {"epic": "ALGOUSD", "yf": "ALGO-USD", "name": "Algorand", "cat": "Crypto"},
-            # VET má 16% spread - skip
-            {"epic": "GRTUSD", "yf": "GRT-USD", "name": "The Graph", "cat": "Crypto"},
             {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto"},
-            # MANIC byla delistována
-            # {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto"},
             {"epic": "SHIBAUSD", "yf": "SHIB-USD", "name": "Shiba Inu", "cat": "Crypto"},
+            {"epic": "PEPEUSD", "yf": "PEPE-USD", "name": "Pepe", "cat": "Crypto"},
+            {"epic": "ARBUSD", "yf": "ARB-USD", "name": "Arbitrum", "cat": "Crypto"},
         ]
         # Total: 25 crypto aktiv (reálný volume pro VP)
         
@@ -400,8 +398,12 @@ class TradingBot:
             if not accounts:
                 return
                 
-            balance = accounts[0].get('balance', {}).get('balance', 0)
-            available = accounts[0].get('balance', {}).get('available', 0)
+            balance_usd = accounts[0].get('balance', {}).get('balance', 0)
+            available_usd = accounts[0].get('balance', {}).get('available', 0)
+            
+            # KONVERZE: Capital.com je v USD, my počítáme v CZK
+            balance = balance_usd * USD_TO_CZK_RATE
+            available = available_usd * USD_TO_CZK_RATE
 
             if balance <= 0:
                 return
@@ -454,7 +456,7 @@ class TradingBot:
             self.trade_amount = max(250.0, min(800.0, adjusted_amount))
 
             if growth_factor > 1.1:
-                self.log(f"📈 COMPOUND: Balance ${balance:.2f} (+{(growth_factor-1)*100:.0f}%), Trade: ${self.trade_amount:.2f} (x{streak_multiplier:.2f})")
+                self.log(f"📈 COMPOUND: Balance {balance:.0f} Kč (${balance_usd:.0f} USD, +{(growth_factor-1)*100:.0f}%), Trade: {self.trade_amount:.0f} Kč")
         except:
             pass
     
@@ -640,7 +642,8 @@ class TradingBot:
             acc = self.client.get_account_info()
             accounts = acc.get('accounts', [])
             if accounts:
-                balance = accounts[0].get('balance', {}).get('balance', 0)
+                balance_usd = accounts[0].get('balance', {}).get('balance', 0)
+                balance = balance_usd * USD_TO_CZK_RATE  # Konverze USD → CZK
 
                 # Set initial balance on first check
                 if self.initial_balance is None:
@@ -729,7 +732,8 @@ class TradingBot:
             if not accounts:
                 return 0
 
-            equity = accounts[0].get('balance', {}).get('balance', 0)
+            equity_usd = accounts[0].get('balance', {}).get('balance', 0)
+            equity = equity_usd * USD_TO_CZK_RATE  # Konverze USD → CZK
             if equity <= 0:
                 return 0
 
@@ -2081,10 +2085,11 @@ class TradingBot:
                 losses = total_trades - wins
                 pnl = summary.get('total_pnl', 0)
                 
-                # Získej balance
+                # Získej balance (s USD → CZK konverzí)
                 acc = self.client.get_account_info()
                 accounts = acc.get('accounts', [])
-                balance = accounts[0].get('balance', {}).get('balance', 0) if accounts else 0
+                balance_usd = accounts[0].get('balance', {}).get('balance', 0) if accounts else 0
+                balance = balance_usd * USD_TO_CZK_RATE
                 
                 if hasattr(self, 'telegram') and self.telegram.enabled:
                     self.telegram.send_daily_report(total_trades, wins, losses, pnl, balance)
