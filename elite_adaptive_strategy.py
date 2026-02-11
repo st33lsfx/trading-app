@@ -305,39 +305,47 @@ class EliteAdaptiveStrategy:
 
         # ========== FOREX MODE: Simple VWAP + EMA Strategy (no VP) ==========
         if self.forex_mode:
-            # Forex: EMA trend + VWAP bands + RSI
-            ema_bullish = curr["Close"] > curr["EMA_200"] and curr["EMA_20"] > curr["EMA_200"]
-            ema_bearish = curr["Close"] < curr["EMA_200"] and curr["EMA_20"] < curr["EMA_200"]
+            # Forex: Zjednodušená strategie - jen VWAP + RSI (bez EMA filtru)
+            # Důvod: EMA 200 na 15m je moc pomalé, RSI + VWAP stačí
             
-            # TREND režim: breakout + pullback
+            # TREND režim: Trend following s VWAP jako S/R
             if is_trend:
-                # LONG: pullback k VWAP v uptrend
-                if ema_bullish and abs(curr["Low"] - vwap) < atr_half and is_bullish and 40 < curr["RSI"] < 70:
-                    signal = "BUY"
-                    reason = "Forex: VWAP Pullback (Uptrend)"
-                    setup_type = "Trend_Pullback"
-                    confidence += 0.05
-                # SHORT: pullback k VWAP v downtrend
-                elif ema_bearish and abs(curr["High"] - vwap) < atr_half and is_bearish and 30 < curr["RSI"] < 60:
-                    signal = "SELL"
-                    reason = "Forex: VWAP Pullback (Downtrend)"
-                    setup_type = "Trend_Pullback"
-                    confidence += 0.05
+                # LONG: price nad VWAP (bullish bias), pullback, RSI ne extrémní
+                if curr["Close"] > vwap and curr["RSI"] < 60 and vol_confirmed:
+                    # Pullback k VWAP nebo EMA20
+                    if abs(curr["Low"] - vwap) < atr_ or abs(curr["Low"] - curr["EMA_20"]) < atr_half:
+                        if is_bullish and di_bullish:
+                            signal = "BUY"
+                            reason = "Forex: Trend Pullback (Long)"
+                            setup_type = "Trend_Pullback"
+                            confidence += 0.05
+                
+                # SHORT: price pod VWAP (bearish bias), pullback, RSI ne extrémní
+                elif curr["Close"] < vwap and curr["RSI"] > 40 and vol_confirmed:
+                    if abs(curr["High"] - vwap) < atr_ or abs(curr["High"] - curr["EMA_20"]) < atr_half:
+                        if is_bearish and di_bearish:
+                            signal = "SELL"
+                            reason = "Forex: Trend Pullback (Short)"
+                            setup_type = "Trend_Pullback"
+                            confidence += 0.05
             
-            # RANGE režim: mean reversion u VWAP bands
-            elif is_range:
-                # LONG: oversold u VWAP lower band (uvolněný RSI < 45)
-                if curr["Low"] <= curr["VWAP_Lower"] and is_bullish and curr["RSI"] < 45:
-                    signal = "BUY"
-                    reason = "Forex: VWAP Lower Band Bounce"
-                    setup_type = "Mean_Reversion"
-                    confidence += 0.05
-                # SHORT: overbought u VWAP upper band (uvolněný RSI > 55)
-                elif curr["High"] >= curr["VWAP_Upper"] and is_bearish and curr["RSI"] > 55:
-                    signal = "SELL"
-                    reason = "Forex: VWAP Upper Band Reversal"
-                    setup_type = "Mean_Reversion"
-                    confidence += 0.05
+            # RANGE režim: Mean reversion u VWAP bands (discount/premium)
+            elif is_range and curr["ADX"] >= 12:
+                # LONG: bounce z VWAP lower (discount zóna)
+                at_lower = curr["Low"] <= curr["VWAP_Lower"] or (curr["Close"] - curr["VWAP_Lower"]) < atr_ * 0.5
+                if at_lower and curr["RSI"] < 50 and vol_confirmed:
+                    if is_bullish or curr["Close"] > curr["Open"]:
+                        signal = "BUY"
+                        reason = "Forex: VWAP Lower Bounce"
+                        setup_type = "Mean_Reversion"
+                
+                # SHORT: rejection z VWAP upper (premium zóna)
+                at_upper = curr["High"] >= curr["VWAP_Upper"] or (curr["VWAP_Upper"] - curr["Close"]) < atr_ * 0.5
+                if signal == "NEUTRAL" and at_upper and curr["RSI"] > 50 and vol_confirmed:
+                    if is_bearish or curr["Close"] < curr["Open"]:
+                        signal = "SELL"
+                        reason = "Forex: VWAP Upper Rejection"
+                        setup_type = "Mean_Reversion"
         
         # ========== CRYPTO MODE: VP Strategy (original) ==========
         # --- TREND: breakouts s volume, pullback k VWAP v trendu ---

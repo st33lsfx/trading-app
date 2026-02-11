@@ -221,7 +221,8 @@ class TradingBot:
             {"epic": "APTUSD", "yf": "APT-USD", "name": "Aptos", "cat": "Crypto"},
             {"epic": "FTMUSD", "yf": "FTM-USD", "name": "Fantom", "cat": "Crypto"},
             {"epic": "ALGOUSD", "yf": "ALGO-USD", "name": "Algorand", "cat": "Crypto"},
-            {"epic": "VETUSD", "yf": "VET-USD", "name": "VeChain", "cat": "Crypto"},
+            # VET má 16% spread na T212 - skip
+            # {"epic": "VETUSD", "yf": "VET-USD", "name": "VeChain", "cat": "Crypto"},
             {"epic": "GRTUSD", "yf": "GRT-USD", "name": "The Graph", "cat": "Crypto"},
             {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto"},
             {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto"},
@@ -265,7 +266,7 @@ class TradingBot:
         self._drawdown_alerted = False  # Track if alert already sent
 
         # Spread filter (v5.0: relaxed for crypto)
-        self.max_spread_pct = 0.25    # v5.0: Max 0.25% spread (was 0.10 — too strict for crypto)
+        self.max_spread_pct = 1.5     # v5.1: Max 1.5% spread pro crypto (0.25 bylo moc přísné)
 
         # Trade tracking
         self.session_trades = []
