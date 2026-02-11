@@ -248,18 +248,18 @@ class TradingBot:
             {"epic": "WLDUSD", "yf": "WLD-USD", "name": "Worldcoin", "cat": "Crypto"},
             {"epic": "KASUSD", "yf": "KAS-USD", "name": "Kaspa", "cat": "Crypto"},
             # === TIER 4 — Další příležitosti ===
-            {"epic": "SUIUSD", "yf": "SUI-USD", "name": "Sui", "cat": "Crypto"},
+            # {"epic": "SUIUSD", "yf": "SUI-USD", "name": "Sui", "cat": "Crypto"},  # REMOVED: Not on Yahoo Finance
             {"epic": "ARBUSD", "yf": "ARB-USD", "name": "Arbitrum", "cat": "Crypto"},
-            {"epic": "PEPEUSD", "yf": "PEPE-USD", "name": "Pepe", "cat": "Crypto"},
+            # {"epic": "PEPEUSD", "yf": "PEPE-USD", "name": "Pepe", "cat": "Crypto"},  # REMOVED: Not on Yahoo Finance
             {"epic": "APEUSD", "yf": "APE-USD", "name": "ApeCoin", "cat": "Crypto"},
             {"epic": "CRVUSD", "yf": "CRV-USD", "name": "Curve DAO", "cat": "Crypto"},
             {"epic": "LDOUSD", "yf": "LDO-USD", "name": "Lido DAO", "cat": "Crypto"},
             {"epic": "ICPUSD", "yf": "ICP-USD", "name": "Internet Computer", "cat": "Crypto"},
             {"epic": "TRXUSD", "yf": "TRX-USD", "name": "Tron", "cat": "Crypto"},
             {"epic": "FLOWUSD", "yf": "FLOW-USD", "name": "Flow", "cat": "Crypto"},
-            {"epic": "IMXUSD", "yf": "IMX-USD", "name": "Immutable X", "cat": "Crypto"},
+            # {"epic": "IMXUSD", "yf": "IMX-USD", "name": "Immutable X", "cat": "Crypto"},  # REMOVED: Not on Yahoo Finance
         ]
-        # Total: 50 crypto (ztrátové: AAVE, HBAR, ALGO, INJ, FIL, LINK, MKR, FLOKI = blacklist)
+        # Total: 47 crypto (was 50, removed 3 unavailable on Yahoo Finance: SUI, PEPE, IMX)
         
         # Pass protected list to Learning Engine to prevent auto-ban
         self.protected_tickers = [t["yf"] for t in self.priority_tickers]
