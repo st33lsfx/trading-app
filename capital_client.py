@@ -268,14 +268,39 @@ class CapitalClient:
             if take_profit:
                 data["profitLevel"] = round(take_profit, 5)
 
-        response = self._safe_request("POST", endpoint, json=data)
-        if response:
-            result = response.json()
-            # Check for errors and raise exception
-            if 'errorCode' in result:
-                raise Exception(f"Order rejected: {result.get('errorCode')}")
-            return result
-        raise Exception("Order failed: No response from API")
+        # Retry logic — API občas neodpoví na první pokus
+        last_error = None
+        for attempt in range(3):
+            response = self._safe_request("POST", endpoint, json=data)
+            if response:
+                try:
+                    result = response.json()
+                except Exception:
+                    last_error = f"Invalid JSON response (status {response.status_code})"
+                    time.sleep(1)
+                    continue
+                # Check for errors
+                if 'errorCode' in result:
+                    error_code = result.get('errorCode', 'UNKNOWN')
+                    error_msg = result.get('errorMessage', error_code)
+                    # Certain errors are not retryable
+                    if error_code in ('INSUFFICIENT_FUNDS', 'MARKET_CLOSED', 'MARKET_NOT_FOUND',
+                                      'REJECT_CFD_ORDER_ON_SPREADBET_ACCOUNT'):
+                        raise Exception(f"Order rejected: {error_code} — {error_msg}")
+                    # Retryable errors
+                    last_error = f"Order error: {error_code} — {error_msg}"
+                    print(f"⚠️ Attempt {attempt+1}/3: {last_error}")
+                    time.sleep(2 ** attempt)
+                    continue
+                return result
+            else:
+                last_error = "No response from API"
+                print(f"⚠️ Attempt {attempt+1}/3: {last_error}, retrying...")
+                time.sleep(2 ** attempt)
+                # Re-authenticate in case session expired
+                if attempt == 1:
+                    self.authenticate()
+        raise Exception(f"Order failed after 3 attempts: {last_error}")
 
     def update_position(self, deal_id, stop_level=None, profit_level=None):
         """Update SL/TP for an existing position."""
