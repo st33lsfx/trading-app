@@ -55,11 +55,17 @@ def run_backtest(
     if df.empty or len(df) < 300:
         return {"error": f"Málo dat ({len(df)} barů)", "ticker": ticker}
 
+    # Detect asset class for strategy mode
+    asset_class = "forex" if config.get("forex_mode") else "crypto"
+
     strategy = EliteAdaptiveStrategy(config)
     # Minimální počet barů pro VP + indikátory
     start_idx = max(strategy.vp_lookback_bars, 200)
     if len(df) <= start_idx:
         return {"error": "Málo dat po warmup", "ticker": ticker}
+
+    # Pre-calculate indicators once (much faster than per-bar)
+    df = strategy.add_indicators(df)
 
     balance = initial_capital
     position = None
@@ -118,12 +124,16 @@ def run_backtest(
         if position is None:
             if signal_every_n <= 1 or (i - start_idx) % signal_every_n == 0:
                 try:
-                    res = strategy.get_signal(slice_df)
+                    res = strategy.get_signal(slice_df, asset_class=asset_class)
                 except Exception:
                     res = {"signal": "NEUTRAL"}
             else:
                 res = {"signal": "NEUTRAL"}
             sig = res.get("signal", "NEUTRAL")
+            conf = res.get("confidence", 0)
+            # PROFIT MODE: min confidence 0.65 (stejně jako live bot)
+            if sig in ("BUY", "SELL") and conf < 0.65:
+                sig = "NEUTRAL"
             if sig in ("BUY", "SELL") and res.get("sl") is not None and res.get("tp") is not None:
                 close_px = row["Close"]
                 sl = float(res["sl"])
@@ -197,7 +207,7 @@ def main():
     ap.add_argument("--period", default="60d", help="Období (60d, 1y)")
     ap.add_argument("--interval", default="15m", help="Timeframe (15m, 1h)")
     ap.add_argument("--capital", type=float, default=10_000, help="Počáteční kapitál")
-    ap.add_argument("--risk", type=float, default=0.003, help="Riziko na obchod (0.003 = 0.3%%, 0.005 = 0.5%%)")
+    ap.add_argument("--risk", type=float, default=0.02, help="Riziko na obchod (0.02 = 2%%, standard pro malý účet)")
     ap.add_argument("--list", action="store_true", help="Spustit na seznamu Elite 15")
     ap.add_argument("--forex", action="store_true", help="Spustit jen na forex párech")
     ap.add_argument("--all", action="store_true", help="Spustit CRYPTO + FOREX (kombinovaný backtest)")
@@ -208,16 +218,22 @@ def main():
 
     # === CRYPTO + FOREX kombinovaný backtest ===
     if args.all:
-        crypto_tickers = ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD", "DOGE-USD"]
-        forex_tickers = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X"]
+        # v7.0: 50 CRYPTO (forex vypnutý — ztratový)
+        crypto_tickers = [
+            "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "DOGE-USD", "ADA-USD",
+            "AVAX-USD", "DOT-USD", "LINK-USD", "NEAR-USD", "ATOM-USD", "XLM-USD", "LTC-USD",
+            "TRX-USD", "ICP-USD", "ALGO-USD", "SUI-USD", "INJ-USD", "HBAR-USD",
+            "SAND-USD", "SHIB-USD", "PEPE-USD", "ARB-USD", "OP-USD",
+            "FIL-USD", "VET-USD", "RUNE-USD", "SEI-USD", "WLD-USD",
+            "AAVE-USD", "MANA-USD", "GALA-USD", "AXS-USD", "EOS-USD",
+            "MKR-USD", "APE-USD", "CRV-USD", "LDO-USD", "ENS-USD",
+            "IMX-USD", "FLOKI-USD", "FET-USD", "RNDR-USD", "STX-USD",
+            "EGLD-USD", "FLOW-USD", "CHZ-USD", "ZIL-USD", "KAS-USD",
+        ]
         period = args.period if args.period != "60d" else "30d"
-        if not args.fast:
-            signal_every_n = 4  # --all defaultně fast (rychlejší)
-        print("=== BACKTEST ELITE V3 — CRYPTO + FOREX (kombinovaný) ===\n")
+        print(f"=== BACKTEST ELITE V3 — 50 CRYPTO (2% risk) ===\n")
         results = []
         
-        # Crypto (VP strategy)
-        print("--- CRYPTO ---")
         for t in crypto_tickers:
             print(f"  {t}...", end=" ", flush=True)
             r = run_backtest(t, period=period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk, signal_every_n=signal_every_n)
@@ -226,18 +242,6 @@ def main():
             else:
                 print(f"Trades: {r['total_trades']} | WR: {r['win_rate']:.0f}% | PF: {r['profit_factor']} | Return: {r['total_return_pct']}%")
                 results.append({**r, "asset_class": "Crypto"})
-        
-        # Forex (VWAP strategy)
-        print("\n--- FOREX ---")
-        fconfig = get_forex_config()
-        for t in forex_tickers:
-            print(f"  {t}...", end=" ", flush=True)
-            r = run_backtest(t, period=period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk, signal_every_n=signal_every_n, config=fconfig)
-            if "error" in r:
-                print(r["error"])
-            else:
-                print(f"Trades: {r['total_trades']} | WR: {r['win_rate']:.0f}% | PF: {r['profit_factor']} | Return: {r['total_return_pct']}%")
-                results.append({**r, "asset_class": "Forex"})
         
         if results:
             # Build summary rows with asset_class
@@ -248,18 +252,22 @@ def main():
                 rows.append(row)
             df = pd.DataFrame(rows)
             print("\n" + "="*60)
-            print("--- SOUHRN (Crypto + Forex) ---")
+            print(f"--- SOUHRN ({len(results)} crypto) ---")
             print(df.to_string(index=False))
             total_trades = sum(r["total_trades"] for r in results)
             avg_return = df["total_return_pct"].mean()
-            crypto_df = df[df["asset_class"] == "Crypto"]
-            forex_df = df[df["asset_class"] == "Forex"]
-            crypto_avg = crypto_df["total_return_pct"].mean() if len(crypto_df) > 0 else 0
-            forex_avg = forex_df["total_return_pct"].mean() if len(forex_df) > 0 else 0
+            profitable = len(df[df["total_return_pct"] > 0])
+            losing = len(df[df["total_return_pct"] <= 0])
+            avg_wr = df["win_rate"].mean()
+            avg_pf = df["profit_factor"].mean()
+            best = df.loc[df["total_return_pct"].idxmax()]
+            worst = df.loc[df["total_return_pct"].idxmin()]
             print(f"\n📊 Celkem obchodů: {total_trades}")
             print(f"📈 Průměr Return: {avg_return:.2f}%")
-            print(f"   Crypto průměr: {crypto_avg:.2f}%")
-            print(f"   Forex průměr:  {forex_avg:.2f}%")
+            print(f"   Ziskových: {profitable}/{len(results)} | Ztrátových: {losing}/{len(results)}")
+            print(f"   Průměr WR: {avg_wr:.0f}% | Průměr PF: {avg_pf:.1f}")
+            print(f"   Nejlepší: {best['ticker']} +{best['total_return_pct']}%")
+            print(f"   Nejhorší: {worst['ticker']} {worst['total_return_pct']}%")
         return
 
     if args.forex:
