@@ -57,13 +57,17 @@ DRAWDOWN_EMERGENCY_PCT = 8.0   # Emergency stop at 8% drawdown
 
 SL_PCT = 0.01              # Fallback
 TP_PCT = 0.02              # Fallback
-MAX_SCAN_PER_CYCLE = 20    # Focused scan only
+MAX_SCAN_PER_CYCLE = 25    # Skenuje všech 25 aktiv (Forex + Crypto)
 INTERVAL = "15m"           # 15m timeframe for Scalping/DayTrading
-PERIOD = "60d"             # 60 days (Max buffer for 15m data on YF)
+PERIOD = "30d"             # 30 dní – aktuálnější data (ne rok stará)
 
 # Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
-TARGET_WATCHLIST_SIZE = 15 # Only top 15 assets
+TARGET_WATCHLIST_SIZE = 25 # 25 aktiv (Forex + Crypto)
 MIN_TRADES_FOR_RANK = 3
+
+# Rozpočet (CZK) – bot přizpůsobí velikost obchodů
+INITIAL_CAPITAL_CZK = 2000
+TRADE_RISK_PCT = 0.05   # 5% kapitálu na obchod (2000 * 0.05 = 100 CZK)
 
 from capital_client import CapitalClient
 
@@ -150,7 +154,7 @@ class TradingBot:
         self.smart_analyst = get_smart_analyst()
         self.telegram = get_telegram_notifier()
         
-        self.trade_amount = 250.0   # v5.0: Target Risk per trade (CZK) — FIXED, not overridden
+        self.trade_amount = max(80, min(500, INITIAL_CAPITAL_CZK * TRADE_RISK_PCT))  # 80–500 CZK
 
         # Risk Management (v5.0 Update — PROFIT OPTIMIZATION)
         self.dry_run = getattr(self, "dry_run", DRY_RUN)
@@ -188,35 +192,42 @@ class TradingBot:
             "LTCUSD", "LTC-USD", # Still choppy often
             "Si=F", "Silver", # Spreads
         ]
-        # Forex páry s horšími výsledky v backtestu – vynechat pro profit
-        self.forex_skip_for_profit = ["EURGBP=X", "GBPJPY=X", "EURJPY=X", "NZDUSD=X", "AUDUSD=X"]
+        # Forex skip – prázdné = bot skenuje vše a sám vybírá nejlepší (learning)
+        self.forex_skip_for_profit = []
         
         # =====================================================
-        # ELITE 15 WATCHLIST - The 15 Best Assets (Forex & Crypto)
+        # WATCHLIST – jen Forex + Crypto (25 aktiv)
         # =====================================================
         self.priority_tickers = [
-            # === CRYPTO (High Volatility, Good Trends) ===
+            # === CRYPTO (15) ===
             {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "cat": "Crypto"},
             {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "cat": "Crypto"},
             {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto"},
-            {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto"}, # Added
-            {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto"},       # Unblacklisted
-
-            # === FOREX (priorita: USDCAD, USDCHF, GBPUSD – backtest 30d) ===
-            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "cat": "Forex"},
-            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "cat": "Forex"},
-            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "cat": "Forex"},
+            {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto"},
+            {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto"},
+            {"epic": "DOGEUSD", "yf": "DOGE-USD", "name": "Dogecoin", "cat": "Crypto"},
+            {"epic": "ADAUSD", "yf": "ADA-USD", "name": "Cardano", "cat": "Crypto"},
+            {"epic": "AVAXUSD", "yf": "AVAX-USD", "name": "Avalanche", "cat": "Crypto"},
+            {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "cat": "Crypto"},
+            {"epic": "MATICUSD", "yf": "MATIC-USD", "name": "Polygon", "cat": "Crypto"},
+            {"epic": "LINKUSD", "yf": "LINK-USD", "name": "Chainlink", "cat": "Crypto"},
+            {"epic": "UNIUSD", "yf": "UNI-USD", "name": "Uniswap", "cat": "Crypto"},
+            {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "Near Protocol", "cat": "Crypto"},
+            {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "cat": "Crypto"},
+            {"epic": "XLMUSD", "yf": "XLM-USD", "name": "Stellar", "cat": "Crypto"},
+            # === FOREX (10) ===
             {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD", "cat": "Forex"},
+            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "cat": "Forex"},
             {"epic": "USDJPY", "yf": "USDJPY=X", "name": "USD/JPY", "cat": "Forex"},
             {"epic": "AUDUSD", "yf": "AUDUSD=X", "name": "AUD/USD", "cat": "Forex"},
+            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "cat": "Forex"},
             {"epic": "NZDUSD", "yf": "NZDUSD=X", "name": "NZD/USD", "cat": "Forex"},
-
-            # === FOREX CROSSES (Structure) ===
+            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "cat": "Forex"},
             {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "cat": "Forex"},
             {"epic": "GBPJPY", "yf": "GBPJPY=X", "name": "GBP/JPY", "cat": "Forex"},
             {"epic": "EURJPY", "yf": "EURJPY=X", "name": "EUR/JPY", "cat": "Forex"},
         ]
-        # Total: 15 Assets
+        # Total: 25 aktiv (Forex + Crypto)
         
         # Pass protected list to Learning Engine to prevent auto-ban
         self.protected_tickers = [t["yf"] for t in self.priority_tickers]
@@ -310,7 +321,7 @@ class TradingBot:
             
             # Default active categories (Indices disabled - poor backtest results)
             if not hasattr(self, 'active_categories'):
-                self.active_categories = ["Forex", "Commodities", "Crypto", "US Stocks"]
+                self.active_categories = ["Forex", "Crypto"]
 
             self.scan_all_markets()
         
@@ -857,14 +868,12 @@ class TradingBot:
         if not hasattr(self, "learning_engine"):
             return filtered[:max_items]
 
-        stats = self.learning_engine.ticker_stats
-
-        # Score candidates by learning stats
+        # Score podle NEDÁVNÝCH obchodů (30 dní), ne celé historie
         scored = []
         unexplored = []
         for c in filtered:
             epic = c.get("epic") or c.get("t212") or ""
-            st = stats.get(epic)
+            st = self.learning_engine.get_recent_stats(epic)
             if not st or st.get("trades", 0) < MIN_TRADES_FOR_RANK:
                 unexplored.append(c)
                 continue

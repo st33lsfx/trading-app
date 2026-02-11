@@ -68,7 +68,10 @@ class LearningEngine:
 
         # Trade counter for optimization trigger
         self._trades_since_optimization = 0
-        
+
+        # Learning z nedávných obchodů (ne celá historie)
+        self.LEARNING_LOOKBACK_DAYS = 30
+
         # Strategy parameters that can be learned
         self.learned_params = {
             "rsi_oversold": 38,
@@ -251,6 +254,26 @@ class LearningEngine:
     def get_asset_class_params(self, asset_class: str) -> dict:
         """Get learned params for a specific asset class."""
         return self.asset_class_params.get(asset_class, self.asset_class_params["default"]).copy()
+
+    def get_recent_stats(self, ticker: str, days: int = None) -> dict:
+        """
+        Vrací statistiky jen z posledních N dní (aktuálnější learning).
+        Pokud nemá dost obchodů, fallback na celkové stats.
+        """
+        days = days or self.LEARNING_LOOKBACK_DAYS
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        stats = self.ticker_stats.get(ticker, {})
+        history = stats.get("trade_history", [])
+        recent = [t for t in history if t.get("timestamp", "") >= cutoff]
+        if len(recent) < 3:
+            return {"trades": stats.get("trades", 0), "win_rate": stats.get("win_rate", 0),
+                    "profit_factor": stats.get("profit_factor", 0)}
+        wins = sum(1 for t in recent if t.get("pnl", 0) > 0)
+        gross_profit = sum(t.get("pnl", 0) for t in recent if t.get("pnl", 0) > 0)
+        gross_loss = abs(sum(t.get("pnl", 0) for t in recent if t.get("pnl", 0) <= 0))
+        wr = (wins / len(recent)) * 100 if recent else 0
+        pf = gross_profit / gross_loss if gross_loss > 0 else (999.0 if gross_profit > 0 else 0)
+        return {"trades": len(recent), "win_rate": wr, "profit_factor": pf}
 
     def record_trade(self, ticker: str, pnl: float, direction: str,
                      entry_price: float, exit_price: float, exit_reason: str,
