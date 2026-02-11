@@ -12,6 +12,7 @@ import numpy as np
 from ta.trend import ADXIndicator, EMAIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange, BollingerBands
 from ta.momentum import RSIIndicator
+from ta.volume import OnBalanceVolumeIndicator, AccDistIndexIndicator
 
 class EliteAdaptiveStrategy:
     def __init__(self, config=None):
@@ -223,13 +224,25 @@ class EliteAdaptiveStrategy:
         df['EMA_200'] = EMAIndicator(df['Close'], window=200).ema_indicator()
         df['EMA_20'] = EMAIndicator(df['Close'], window=20).ema_indicator()
         
+        # 7. OBV & ADL (volume confluence - potvrzují trend)
+        vol_safe = df['Volume'].replace(0, np.nan).fillna((df['High'] - df['Low']) * 1000)
+        obv_ind = OnBalanceVolumeIndicator(df['Close'], vol_safe)
+        df['OBV'] = obv_ind.on_balance_volume()
+        adl_ind = AccDistIndexIndicator(df['High'], df['Low'], df['Close'], vol_safe)
+        df['ADL'] = adl_ind.acc_dist_index()
+        df['OBV_MA10'] = df['OBV'].rolling(window=10).mean()
+        df['ADL_MA10'] = df['ADL'].rolling(window=10).mean()
+        
         return df
 
-    def get_signal(self, df):
+    def get_signal(self, df, asset_class=None):
         """
         Generates a trading signal for the last candle.
+        asset_class: "forex" = VWAP mode (no VP), "crypto" or None = VP strategy
         Returns: { 'signal': 'BUY'|'SELL'|'NEUTRAL', 'sl': float, 'tp': float, 'reason': str }
         """
+        # Forex vs Crypto: per-call override (bot passes asset_class)
+        use_forex_mode = (asset_class == "forex") if asset_class else self.forex_mode
         # Ensure we have enough data (min lookback)
         if len(df) < max(self.vp_lookback_bars, 200):
             return {'signal': 'NEUTRAL', 'reason': 'Insufficient Data'}
@@ -252,7 +265,7 @@ class EliteAdaptiveStrategy:
         vp = None
         poc = vah = val = None
         
-        if not self.forex_mode:
+        if not use_forex_mode:
             # Crypto: Session VP = today's session only -> correct VAH/VAL/POC for intraday
             if self.use_session_vp:
                 vp = self._calculate_session_vp(df.iloc[:-1])
@@ -264,7 +277,7 @@ class EliteAdaptiveStrategy:
             vah = vp['VAH']
             val = vp['VAL']
         else:
-            # Forex: používáme VWAP bands jako S/R
+            # Forex: VWAP bands jako S/R (žiádný VP)
             vp = {'source': 'forex_vwap_only'}
         
         signal = "NEUTRAL"
@@ -275,7 +288,7 @@ class EliteAdaptiveStrategy:
         # Crypto: Volume je skutečný → povolíme všechny setupy (vol_confirmed = True vždy)
         # Forex: Volume je syntetický → používáme RVol filter
         # DEBUG: v5.2 update - crypto volume filter vypnut
-        if self.forex_mode:
+        if use_forex_mode:
             # Forex: vyžadujeme min. RVol
             vol_confirmed = curr.get("RVol", 0) >= 0.5 or pd.isna(curr.get("RVol"))
         else:
@@ -300,14 +313,15 @@ class EliteAdaptiveStrategy:
         near_swing_low = (last_sl is not None and abs(curr["Low"] - last_sl) <= atr_) if last_sl is not None else True
         near_swing_high = (last_sh is not None and abs(curr["High"] - last_sh) <= atr_) if last_sh is not None else True
 
-        confidence = 0.55
+        # Base confidence – 0.65+ po bonusech = PROFIT MODE pass
+        confidence = 0.58
         if vol_confirmed:
-            confidence += 0.1
+            confidence += 0.08
         if curr["ADX"] > 30 and is_trend:
-            confidence += 0.1
+            confidence += 0.10
 
         # ========== FOREX MODE: Simple VWAP + EMA Strategy (no VP) ==========
-        if self.forex_mode:
+        if use_forex_mode:
             # Forex: Zjednodušená strategie - jen VWAP + RSI (bez EMA filtru)
             # Důvod: EMA 200 na 15m je moc pomalé, RSI + VWAP stačí
             
@@ -360,16 +374,19 @@ class EliteAdaptiveStrategy:
                     signal = "BUY"
                     reason = f"Trend Breakout > VAH ({vah:.2f})"
                     setup_type = "Trend_Breakout"
+                    confidence += 0.12  # Strong setup
                 # 2. Pullback k VWAP
                 elif abs(curr["Low"] - vwap) < atr_half and is_bullish and curr["RSI"] > 40 and vol_confirmed:
                     signal = "BUY"
                     reason = "Trend Pullback to VWAP"
                     setup_type = "Trend_Pullback"
+                    confidence += 0.08
                 # 3. Pullback k EMA20 (nový setup)
                 elif signal == "NEUTRAL" and abs(curr["Low"] - curr["EMA_20"]) < atr_half and is_bullish and 45 < curr["RSI"] < 65:
                     signal = "BUY"
                     reason = "Trend Pullback to EMA20"
                     setup_type = "Trend_Pullback"
+                    confidence += 0.06
 
             # DOWNTREND setupy (Close < EMA200, Close < VWAP)
             elif curr["Close"] < curr["EMA_200"] and curr["Close"] < vwap and di_bearish:
@@ -378,16 +395,19 @@ class EliteAdaptiveStrategy:
                     signal = "SELL"
                     reason = f"Trend Breakdown < VAL ({val:.2f})"
                     setup_type = "Trend_Breakout"
+                    confidence += 0.12
                 # 2. Pullback k VWAP
                 elif abs(curr["High"] - vwap) < atr_half and is_bearish and curr["RSI"] < 60 and vol_confirmed:
                     signal = "SELL"
                     reason = "Trend Pullback to VWAP (Short)"
                     setup_type = "Trend_Pullback"
+                    confidence += 0.08
                 # 3. Pullback k EMA20 (nový setup)
                 elif signal == "NEUTRAL" and abs(curr["High"] - curr["EMA_20"]) < atr_half and is_bearish and 35 < curr["RSI"] < 55:
                     signal = "SELL"
                     reason = "Trend Pullback to EMA20 (Short)"
                     setup_type = "Trend_Pullback"
+                    confidence += 0.06
 
         # --- RANGE: vstup u VAL/VAH, v zóně hodnoty. Vyhýbáme se velmi slabému ADX (choppy). ---
         elif is_range and vol_confirmed and curr["ADX"] >= 12:
@@ -406,10 +426,12 @@ class EliteAdaptiveStrategy:
                     signal = "BUY"
                     reason = f"Range BUY @ VAL ({val:.2f})"
                     setup_type = "Mean_Reversion"
+                    confidence += 0.10
             if signal == "NEUTRAL" and in_value_long and (curr["Low"] <= curr["VWAP_Lower"]) and is_bullish and curr["RSI"] < 42:
                 signal = "BUY"
                 reason = "Range BUY @ VWAP Lower"
                 setup_type = "Mean_Reversion"
+                confidence += 0.08
 
             # SHORT: RSI overbought (> 55)
             if signal == "NEUTRAL" and in_value_short and near_vah and is_bearish and curr["RSI"] > 55:
@@ -417,10 +439,30 @@ class EliteAdaptiveStrategy:
                     signal = "SELL"
                     reason = f"Range SELL @ VAH ({vah:.2f})"
                     setup_type = "Mean_Reversion"
+                    confidence += 0.10
             if signal == "NEUTRAL" and in_value_short and (curr["High"] >= curr["VWAP_Upper"]) and is_bearish and curr["RSI"] > 58:
                 signal = "SELL"
                 reason = "Range SELL @ VWAP Upper"
                 setup_type = "Mean_Reversion"
+                confidence += 0.08
+
+        # --- OBV/ADL CONFLUENCE (volume potvrzuje trend = vyšší profitabilita) ---
+        if signal != "NEUTRAL":
+            obv_valid = not pd.isna(curr.get("OBV_MA10")) and not pd.isna(curr.get("OBV"))
+            adl_valid = not pd.isna(curr.get("ADL_MA10")) and not pd.isna(curr.get("ADL"))
+            if obv_valid and adl_valid:
+                obv_bullish = curr["OBV"] > curr["OBV_MA10"]
+                obv_bearish = curr["OBV"] < curr["OBV_MA10"]
+                adl_bullish = curr["ADL"] > curr["ADL_MA10"]
+                adl_bearish = curr["ADL"] < curr["ADL_MA10"]
+                vol_confirms = (signal == "BUY" and (obv_bullish or adl_bullish)) or (signal == "SELL" and (obv_bearish or adl_bearish))
+                vol_opposes = (signal == "BUY" and (obv_bearish and adl_bearish)) or (signal == "SELL" and (obv_bullish and adl_bullish))
+                if vol_confirms:
+                    confidence += 0.06  # OBV/ADL potvrzuje směr
+                elif vol_opposes:
+                    confidence -= 0.12  # OBV/ADL proti signálu = slabší setup
+                    if confidence < 0.65:  # PROFIT MODE: zamítnout setup bez volume confluence
+                        return {'signal': 'NEUTRAL', 'reason': 'OBV/ADL proti signálu (low confidence)', 'rsi': float(curr['RSI']), 'adx': float(curr['ADX']), 'regime': self.last_regime}
 
         # --- RISK MANAGEMENT (SL/TP) ---
         if signal == "NEUTRAL":
@@ -454,7 +496,7 @@ class EliteAdaptiveStrategy:
                 sl_price = min(sl_price, curr['Low'] - atr)
             if setup_type == "Mean_Reversion":
                 # Forex mode: SL pod VWAP lower, crypto: SL pod VAL
-                if self.forex_mode:
+                if use_forex_mode:
                     sl_price = min(sl_price, curr["VWAP_Lower"] - atr * 0.5)
                     risk = close - sl_price
                     # TP: VWAP (fair value) nebo min 1.5:1 R:R
@@ -476,7 +518,7 @@ class EliteAdaptiveStrategy:
                 sl_price = max(sl_price, curr['High'] + atr)
             if setup_type == "Mean_Reversion":
                 # Forex mode: SL nad VWAP upper, crypto: SL nad VAH
-                if self.forex_mode:
+                if use_forex_mode:
                     sl_price = max(sl_price, curr["VWAP_Upper"] + atr * 0.5)
                     risk = sl_price - close
                     # TP: VWAP nebo min 1.5:1 R:R
@@ -492,8 +534,8 @@ class EliteAdaptiveStrategy:
                 tp_dist = (sl_price - close) * used_tp_rr
                 tp_price = close - tp_dist
 
-        # Min R:R 1.0 – skip jen ztrátové setupy (mean reversion u VAL/VAH často 1:1)
-        min_rr = 1.0
+        # Min R:R 1.15 – PROFIT MODE: jen setupy s solidním rewardem
+        min_rr = 1.15
         if signal == "BUY":
             risk = close - sl_price
             reward = tp_price - close

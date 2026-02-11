@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     "adx_threshold": 25,
     "sl_atr": 4.0,
     "tp_rr": 2.0,
-    "vp_lookback": 288,
+    "vp_lookback": 96,   # 1 den (rychlejší, crypto-friendly)
     "min_session_bars_for_vp": 5,
     "vwap_window": 96,
 }
@@ -219,10 +219,67 @@ def main():
     ap.add_argument("--risk", type=float, default=0.003, help="Riziko na obchod (0.003 = 0.3%%, 0.005 = 0.5%%)")
     ap.add_argument("--list", action="store_true", help="Spustit na seznamu Elite 15")
     ap.add_argument("--forex", action="store_true", help="Spustit jen na forex párech")
+    ap.add_argument("--all", action="store_true", help="Spustit CRYPTO + FOREX (kombinovaný backtest)")
     ap.add_argument("--fast", action="store_true", help="Rychlejší: signál jen každé 4 bary (méně obchodů)")
     args = ap.parse_args()
 
     signal_every_n = 4 if args.fast else 1
+
+    # === CRYPTO + FOREX kombinovaný backtest ===
+    if args.all:
+        crypto_tickers = ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD", "DOGE-USD"]
+        forex_tickers = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X"]
+        period = args.period if args.period != "60d" else "30d"
+        if not args.fast:
+            signal_every_n = 4  # --all defaultně fast (rychlejší)
+        print("=== BACKTEST ELITE V3 — CRYPTO + FOREX (kombinovaný) ===\n")
+        results = []
+        
+        # Crypto (VP strategy)
+        print("--- CRYPTO ---")
+        for t in crypto_tickers:
+            print(f"  {t}...", end=" ", flush=True)
+            r = run_backtest(t, period=period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk, signal_every_n=signal_every_n)
+            if "error" in r:
+                print(r["error"])
+            else:
+                print(f"Trades: {r['total_trades']} | WR: {r['win_rate']:.0f}% | PF: {r['profit_factor']} | Return: {r['total_return_pct']}%")
+                results.append({**r, "asset_class": "Crypto"})
+        
+        # Forex (VWAP strategy)
+        print("\n--- FOREX ---")
+        fconfig = get_forex_config()
+        for t in forex_tickers:
+            print(f"  {t}...", end=" ", flush=True)
+            r = run_backtest(t, period=period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk, signal_every_n=signal_every_n, config=fconfig)
+            if "error" in r:
+                print(r["error"])
+            else:
+                print(f"Trades: {r['total_trades']} | WR: {r['win_rate']:.0f}% | PF: {r['profit_factor']} | Return: {r['total_return_pct']}%")
+                results.append({**r, "asset_class": "Forex"})
+        
+        if results:
+            # Build summary rows with asset_class
+            rows = []
+            for r in results:
+                row = {k: v for k, v in r.items() if k != "trades"}
+                row["asset_class"] = r.get("asset_class", "")
+                rows.append(row)
+            df = pd.DataFrame(rows)
+            print("\n" + "="*60)
+            print("--- SOUHRN (Crypto + Forex) ---")
+            print(df.to_string(index=False))
+            total_trades = sum(r["total_trades"] for r in results)
+            avg_return = df["total_return_pct"].mean()
+            crypto_df = df[df["asset_class"] == "Crypto"]
+            forex_df = df[df["asset_class"] == "Forex"]
+            crypto_avg = crypto_df["total_return_pct"].mean() if len(crypto_df) > 0 else 0
+            forex_avg = forex_df["total_return_pct"].mean() if len(forex_df) > 0 else 0
+            print(f"\n📊 Celkem obchodů: {total_trades}")
+            print(f"📈 Průměr Return: {avg_return:.2f}%")
+            print(f"   Crypto průměr: {crypto_avg:.2f}%")
+            print(f"   Forex průměr:  {forex_avg:.2f}%")
+        return
 
     if args.forex:
         tickers = [
@@ -249,16 +306,16 @@ def main():
         return
 
     if args.list:
-        tickers = [
-            "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
-            "EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X",
-            "NZDUSD=X", "USDCHF=X", "EURGBP=X", "GBPJPY=X", "EURJPY=X",
-        ]
-        print("=== BACKTEST ELITE V3 (Session VP) — více symbolů ===\n")
+        crypto_tickers = ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD"]
+        forex_tickers = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X", "USDCAD=X"]
+        tickers = crypto_tickers + forex_tickers
+        print("=== BACKTEST ELITE V3 — Crypto (VP) + Forex (VWAP) ===\n")
         results = []
+        fconfig = get_forex_config()
         for t in tickers:
             print(f"  {t}...", end=" ", flush=True)
-            r = run_backtest(t, period=args.period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk)
+            cfg = fconfig if "=X" in t else None  # Forex používají forex_mode
+            r = run_backtest(t, period=args.period, interval=args.interval, initial_capital=args.capital, risk_pct=args.risk, config=cfg, signal_every_n=signal_every_n)
             if "error" in r:
                 print(r["error"])
             else:

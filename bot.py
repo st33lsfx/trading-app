@@ -34,13 +34,24 @@ CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
 # ULTRA-CONSERVATIVE SETTINGS (pro první live týden)
 LIVE_SAFE_MODE = False  # Zapni pro extra bezpečnost
 
+# Rozpočet (CZK) – MUST be before MAX_POSITIONS calc
+INITIAL_CAPITAL_CZK = 2000
+TRADE_RISK_PCT = 0.05   # 5% kapitálu na obchod (2000 * 0.05 = 100 CZK)
+USD_TO_CZK_RATE = 23.0  # Aktuální kurz USD/CZK (Capital.com je v USD!)
+SMALL_ACCOUNT_THRESHOLD = 5000  # Pod 5k Kč = malý účet
+PROFIT_MODE = True      # v6.0: Stricter filters, realistic targets
+
+# 50 aktiv = více příležitostí; ziskovost přes quality filtry (conf 68%, R:R 1.15+)
+PROFIT_WHITELIST_ONLY = False  # Skenuj všech 50, vstup jen high-quality
+
 if LIVE_SAFE_MODE:
-    MAX_POSITIONS = 4          # v3.2: Sníženo z 4 na 3 pro bezpečnost
-    TRADE_AMOUNT_CZK = 200     # ~$7 per trade
-    MAX_RISK_PCT = 0.002       # v3.2: START at 0.2% (ramps up after 20 trades)
+    MAX_POSITIONS = 3          # Ultra-safe
+    TRADE_AMOUNT_CZK = 150     # ~$6 per trade
+    MAX_RISK_PCT = 0.002       # 0.2% risk
 else:
-    MAX_POSITIONS = 5          # Normal mode
-    TRADE_AMOUNT_CZK = 200     # ~$8 per trade
+    # v6.0 PROFIT MODE: Malý účet = max 3 pozice (pod 5k Kč)
+    MAX_POSITIONS = 3 if INITIAL_CAPITAL_CZK < 5000 else 5
+    TRADE_AMOUNT_CZK = 100     # Base ~$4 (actual from compound)
     MAX_RISK_PCT = 0.005       # 0.5% risk
 
 # === RISK RAMP-UP SCHEDULE (v3.2) ===
@@ -57,18 +68,13 @@ DRAWDOWN_EMERGENCY_PCT = 8.0   # Emergency stop at 8% drawdown
 
 SL_PCT = 0.01              # Fallback
 TP_PCT = 0.02              # Fallback
-MAX_SCAN_PER_CYCLE = 25    # Skenuje všech 25 crypto aktiv
+MAX_SCAN_PER_CYCLE = 50    # Skenuje 50 aktiv (crypto + forex)
 INTERVAL = "15m"           # 15m timeframe for Scalping/DayTrading
 PERIOD = "30d"             # 30 dní – aktuálnější data (ne rok stará)
 
-# Learning-based watchlist - BOT SI SÁM VYBERE NEJLEPŠÍ
-TARGET_WATCHLIST_SIZE = 25 # 25 crypto aktiv
+# Learning-based watchlist - více aktiv = více příležitostí
+TARGET_WATCHLIST_SIZE = 50 # 50 aktiv (crypto + forex)
 MIN_TRADES_FOR_RANK = 3
-
-# Rozpočet (CZK) – bot přizpůsobí velikost obchodů
-INITIAL_CAPITAL_CZK = 2000
-TRADE_RISK_PCT = 0.05   # 5% kapitálu na obchod (2000 * 0.05 = 100 CZK)
-USD_TO_CZK_RATE = 23.0  # Aktuální kurz USD/CZK (Capital.com je v USD!)
 
 from capital_client import CapitalClient
 
@@ -109,7 +115,6 @@ class TradingBot:
         # "elite" = EliteStrategy v1 (VWAP + VP + Confluence)
         # "elite_v3" = EliteAdaptiveStrategy (Validated 52% Return Logic)
         self.strategy_type = "elite_v3"
-        print(f"DEBUG: Active Strategy Type: {self.strategy_type}") # Debug check
         
         # =====================================================
         # ELITE STRATEGY CONFIG (15m)
@@ -155,15 +160,18 @@ class TradingBot:
         self.smart_analyst = get_smart_analyst()
         self.telegram = get_telegram_notifier()
         
-        self.trade_amount = max(80, min(500, INITIAL_CAPITAL_CZK * TRADE_RISK_PCT))  # 80–500 CZK
+        # PROFIT MODE: Pro malý účet (2k) = 60–100 CZK/trade (3–5% risk)
+        base_risk = INITIAL_CAPITAL_CZK * TRADE_RISK_PCT
+        self.trade_amount = max(50, min(150, base_risk)) if PROFIT_MODE else max(80, min(500, base_risk))
 
         # Risk Management (v5.0 Update — PROFIT OPTIMIZATION)
         self.dry_run = getattr(self, "dry_run", DRY_RUN)
         self.max_risk_pct = 0.30 # v5.0: Max risk 30% equity to allow crypto min sizes (BTC 0.01)
 
-        # Daily Limits (v5.0 — FINAL, NOT OVERRIDDEN BELOW)
-        self.daily_profit_target = 400.0  # CZK — Stop trading for the day when hit
-        self.max_daily_loss = 100.0       # CZK — Stop trading, protect from minus day
+        # Daily Limits (v6.0 PROFIT MODE – proportional to capital)
+        # 2000 Kč: target 80 Kč (4%), max loss 60 Kč (3%)
+        self.daily_profit_target = min(400.0, INITIAL_CAPITAL_CZK * 0.04)
+        self.max_daily_loss = min(100.0, INITIAL_CAPITAL_CZK * 0.03)
         self.daily_pnl = 0.0
         self.daily_reset_date = date.today().isoformat()
         self.session_stopped_reason = None # "daily_loss", "profit_target", "drawdown"
@@ -181,6 +189,8 @@ class TradingBot:
 
         self.log(f"🧠 Strategy Initialized: {self.strategy_type}")
         self.log(f"📊 Timeframe: {INTERVAL}, Period: {PERIOD}")
+        if PROFIT_MODE:
+            self.log(f"🎯 PROFIT MODE v6.0: 50 aktiv (Crypto+Forex) | Min conf 68% | R:R 1.15+ | Daily +{self.daily_profit_target:.0f}/-{self.max_daily_loss:.0f} Kč")
 
         # UI & Strategy State (Initialized here for immediate access)
         self.scan_results = []
@@ -197,10 +207,10 @@ class TradingBot:
         self.forex_skip_for_profit = []
         
         # =====================================================
-        # WATCHLIST – JEN CRYPTO (VP funguje na skutečném volume)
+        # WATCHLIST – 50 AKTIV (Crypto + Forex) = více příležitostí
         # =====================================================
         self.priority_tickers = [
-            # === TOP CRYPTO (25) ===
+            # === CRYPTO (30) ===
             {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "cat": "Crypto"},
             {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "cat": "Crypto"},
             {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto"},
@@ -210,24 +220,50 @@ class TradingBot:
             {"epic": "DOGEUSD", "yf": "DOGE-USD", "name": "Dogecoin", "cat": "Crypto"},
             {"epic": "AVAXUSD", "yf": "AVAX-USD", "name": "Avalanche", "cat": "Crypto"},
             {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "cat": "Crypto"},
-            {"epic": "MATICUSD", "yf": "MATIC-USD", "name": "Polygon", "cat": "Crypto"},
             {"epic": "LINKUSD", "yf": "LINK-USD", "name": "Chainlink", "cat": "Crypto"},
-            # UNI a MATIC byly delistovány z yfinance
-            # {"epic": "UNIUSD", "yf": "UNI-USD", "name": "Uniswap", "cat": "Crypto"},
             {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "Near Protocol", "cat": "Crypto"},
             {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "cat": "Crypto"},
             {"epic": "XLMUSD", "yf": "XLM-USD", "name": "Stellar", "cat": "Crypto"},
             {"epic": "LTCUSD", "yf": "LTC-USD", "name": "Litecoin", "cat": "Crypto"},
             {"epic": "TRXUSD", "yf": "TRX-USD", "name": "Tron", "cat": "Crypto"},
             {"epic": "ICPUSD", "yf": "ICP-USD", "name": "Internet Computer", "cat": "Crypto"},
-            # Delisted: APT, FTM, GRT, MATIC, UNI, MANA
             {"epic": "ALGOUSD", "yf": "ALGO-USD", "name": "Algorand", "cat": "Crypto"},
             {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto"},
             {"epic": "SHIBAUSD", "yf": "SHIB-USD", "name": "Shiba Inu", "cat": "Crypto"},
             {"epic": "PEPEUSD", "yf": "PEPE-USD", "name": "Pepe", "cat": "Crypto"},
             {"epic": "ARBUSD", "yf": "ARB-USD", "name": "Arbitrum", "cat": "Crypto"},
+            {"epic": "SUIUSD", "yf": "SUI-USD", "name": "Sui", "cat": "Crypto"},
+            {"epic": "OPUSD", "yf": "OP-USD", "name": "Optimism", "cat": "Crypto"},
+            {"epic": "INJUSD", "yf": "INJ-USD", "name": "Injective", "cat": "Crypto"},
+            {"epic": "FILUSD", "yf": "FIL-USD", "name": "Filecoin", "cat": "Crypto"},
+            {"epic": "HBARUSD", "yf": "HBAR-USD", "name": "Hedera", "cat": "Crypto"},
+            {"epic": "VETUSD", "yf": "VET-USD", "name": "VeChain", "cat": "Crypto"},
+            {"epic": "RUNEUSD", "yf": "RUNE-USD", "name": "THORChain", "cat": "Crypto"},
+            {"epic": "SEIUSD", "yf": "SEI-USD", "name": "Sei", "cat": "Crypto"},
+            {"epic": "WLDUSD", "yf": "WLD-USD", "name": "Worldcoin", "cat": "Crypto"},
+            # === FOREX (20) ===
+            {"epic": "EURUSD", "yf": "EURUSD=X", "name": "EUR/USD", "cat": "Forex"},
+            {"epic": "GBPUSD", "yf": "GBPUSD=X", "name": "GBP/USD", "cat": "Forex"},
+            {"epic": "USDJPY", "yf": "USDJPY=X", "name": "USD/JPY", "cat": "Forex"},
+            {"epic": "AUDUSD", "yf": "AUDUSD=X", "name": "AUD/USD", "cat": "Forex"},
+            {"epic": "USDCAD", "yf": "USDCAD=X", "name": "USD/CAD", "cat": "Forex"},
+            {"epic": "NZDUSD", "yf": "NZDUSD=X", "name": "NZD/USD", "cat": "Forex"},
+            {"epic": "USDCHF", "yf": "USDCHF=X", "name": "USD/CHF", "cat": "Forex"},
+            {"epic": "EURGBP", "yf": "EURGBP=X", "name": "EUR/GBP", "cat": "Forex"},
+            {"epic": "GBPJPY", "yf": "GBPJPY=X", "name": "GBP/JPY", "cat": "Forex"},
+            {"epic": "EURJPY", "yf": "EURJPY=X", "name": "EUR/JPY", "cat": "Forex"},
+            {"epic": "AUDJPY", "yf": "AUDJPY=X", "name": "AUD/JPY", "cat": "Forex"},
+            {"epic": "EURAUD", "yf": "EURAUD=X", "name": "EUR/AUD", "cat": "Forex"},
+            {"epic": "EURCHF", "yf": "EURCHF=X", "name": "EUR/CHF", "cat": "Forex"},
+            {"epic": "GBPCHF", "yf": "GBPCHF=X", "name": "GBP/CHF", "cat": "Forex"},
+            {"epic": "AUDNZD", "yf": "AUDNZD=X", "name": "AUD/NZD", "cat": "Forex"},
+            {"epic": "USDMXN", "yf": "USDMXN=X", "name": "USD/MXN", "cat": "Forex"},
+            {"epic": "USDZAR", "yf": "USDZAR=X", "name": "USD/ZAR", "cat": "Forex"},
+            {"epic": "USDTRY", "yf": "USDTRY=X", "name": "USD/TRY", "cat": "Forex"},
+            {"epic": "USDSEK", "yf": "USDSEK=X", "name": "USD/SEK", "cat": "Forex"},
+            {"epic": "USDNOK", "yf": "USDNOK=X", "name": "USD/NOK", "cat": "Forex"},
         ]
-        # Total: 25 crypto aktiv (reálný volume pro VP)
+        # Total: 50 aktiv (30 crypto + 20 forex)
         
         # Pass protected list to Learning Engine to prevent auto-ban
         self.protected_tickers = [t["yf"] for t in self.priority_tickers]
@@ -321,7 +357,7 @@ class TradingBot:
             
             # Default active categories (Indices disabled - poor backtest results)
             if not hasattr(self, 'active_categories'):
-                self.active_categories = ["Crypto"]  # Jen Crypto - VP funguje na skutečném volume
+                self.active_categories = ["Crypto", "Forex"]  # 50 aktiv = crypto + forex
 
             self.scan_all_markets()
         
@@ -408,14 +444,16 @@ class TradingBot:
             if balance <= 0:
                 return
                 
-            # === BASE COMPOUND (v5.0: Higher base for real profits) ===
+            # === BASE COMPOUND (v6.0 PROFIT MODE) ===
             growth_factor = balance / self.base_capital
+            # Malý účet (<5k): max 8% per trade, min 50 CZK
+            max_pct = 0.08 if balance < SMALL_ACCOUNT_THRESHOLD else 0.15
             base_trade_amount = min(
                 available * self.margin_usage_pct / self.max_positions,
-                balance * 0.15  # v5.0: Max 15% účtu per trade (was 8%)
+                balance * max_pct
             )
-            # v5.0: Never go below 250 CZK target
-            base_trade_amount = max(250.0, base_trade_amount)
+            min_trade = 50.0 if balance < SMALL_ACCOUNT_THRESHOLD else 250.0
+            base_trade_amount = max(min_trade, base_trade_amount)
             
             # === STREAK ADJUSTMENT ===
             # Track wins/losses
@@ -451,9 +489,10 @@ class TradingBot:
             # Apply streak adjustment
             adjusted_amount = base_trade_amount * streak_multiplier
 
-            # v5.0: Clamp — min 250 CZK (target risk), max 800 CZK
-            # Never go below 250 CZK to maintain meaningful position sizes
-            self.trade_amount = max(250.0, min(800.0, adjusted_amount))
+            # v6.0 PROFIT MODE: Malý účet 50–150 CZK, větší 250–800 CZK
+            cap_max = 150.0 if balance < SMALL_ACCOUNT_THRESHOLD else 800.0
+            cap_min = 50.0 if balance < SMALL_ACCOUNT_THRESHOLD else 250.0
+            self.trade_amount = max(cap_min, min(cap_max, adjusted_amount))
 
             if growth_factor > 1.1:
                 self.log(f"📈 COMPOUND: Balance {balance:.0f} Kč (${balance_usd:.0f} USD, +{(growth_factor-1)*100:.0f}%), Trade: {self.trade_amount:.0f} Kč")
@@ -1329,8 +1368,8 @@ class TradingBot:
                 strategy_used = "ADAPTIVE_VP"
 
             elif self.strategy_type == "elite_v3":
-                # === ELITE ADAPTIVE STRATEGY (v3.0) ===
-                result = self.elite_strategy_v3.get_signal(df)
+                # === ELITE ADAPTIVE STRATEGY (v3.0) - Crypto VP / Forex VWAP ===
+                result = self.elite_strategy_v3.get_signal(df, asset_class=asset_class)
                 signal = result.get("signal")
                 confidence = result.get("confidence", 0.75) # Use dynamic confidence
                 regime = result.get("regime", "UNKNOWN")
@@ -1368,7 +1407,8 @@ class TradingBot:
             # ========================================
             # CONFIDENCE CHECK - kvalita nad kvantitou (profit)
             # ========================================
-            MIN_CONFIDENCE = 0.60  # 0.6 = silnější setupy (crypto má více signálů než forex)
+            # v6.0 PROFIT MODE: Jen quality setupy (0.68 = méně obchodů, vyšší win rate)
+            MIN_CONFIDENCE = 0.68 if PROFIT_MODE else 0.60
             confidence = result.get("confidence", 0)
             
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
