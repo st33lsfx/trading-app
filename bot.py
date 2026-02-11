@@ -169,9 +169,9 @@ class TradingBot:
         self.max_risk_pct = 0.30 # v5.0: Max risk 30% equity to allow crypto min sizes (BTC 0.01)
 
         # Daily Limits (v6.0 PROFIT MODE – proportional to capital)
-        # 2000 Kč: target 80 Kč (4%), max loss 60 Kč (3%)
+        # 2000 Kč: target 80 Kč (4%), max loss 40 Kč (~2 USD) — zastavit dříve při propadu
         self.daily_profit_target = min(400.0, INITIAL_CAPITAL_CZK * 0.04)
-        self.max_daily_loss = min(100.0, INITIAL_CAPITAL_CZK * 0.03)
+        self.max_daily_loss = min(60.0, INITIAL_CAPITAL_CZK * 0.02)  # 2% = ~40 Kč na 2k
         self.daily_pnl = 0.0
         self.daily_reset_date = date.today().isoformat()
         self.session_stopped_reason = None # "daily_loss", "profit_target", "drawdown"
@@ -406,12 +406,14 @@ class TradingBot:
             trades = [t for t in (trans or []) if t.get('profitAndLoss') is not None and t.get('profitAndLoss') != 0]
             day_start_ms = start_today_utc
             today_trades = [t for t in trades if (t.get('date') or t.get('transactionDate') or 0) >= day_start_ms]
-            total = sum(float(t.get('profitAndLoss', 0)) for t in today_trades)
+            total_usd = sum(float(t.get('profitAndLoss', 0)) for t in today_trades)
+            # Capital.com vrací PnL v USD — převést na CZK pro porovnání s limity (Kč)
+            total_czk = total_usd * USD_TO_CZK_RATE
             with self._daily_pnl_lock:
-                self.daily_pnl = total
-            if self.max_daily_loss and total <= -abs(self.max_daily_loss):
+                self.daily_pnl = total_czk  # ukládáme v CZK pro konzistentní log a limity
+            if self.max_daily_loss and total_czk <= -abs(self.max_daily_loss):
                 self.session_stopped_reason = "daily_loss"
-            elif self.daily_profit_target and total >= self.daily_profit_target:
+            elif self.daily_profit_target and total_czk >= self.daily_profit_target:
                 self.session_stopped_reason = "profit_target"
         except Exception as e:
             pass
@@ -1625,6 +1627,29 @@ class TradingBot:
 
                         self.last_trade_times[yf_ticker] = (time.time(), signal)
                         return True
+
+                    # === CENA VS. SIGNAL: nekupovat pokud by fill byl už ve ztrátě ===
+                    # Market order BUY = platíš offer; SELL = dostaneš bid. Signál je z Close (starší data).
+                    if self.broker == "capital":
+                        try:
+                            info = self.client.get_instrument_info(t212_ticker)
+                            bid, offer = info.get('bid', 0), info.get('offer', 0)
+                            if bid > 0 and offer > 0 and last_price > 0:
+                                MAX_SLIPPAGE_PCT = 0.004  # max 0.4% horší než signál
+                                if signal == "BUY":
+                                    fill_price = offer
+                                    slippage_pct = (fill_price - last_price) / last_price
+                                    if slippage_pct > MAX_SLIPPAGE_PCT:
+                                        self.log(f"❌ {t212_ticker}: SKIP — cena proti nám (offer {fill_price:.4f} vs signál {last_price:.4f}, +{slippage_pct*100:.2f}%). Nekupuj ve ztrátě.")
+                                        return False
+                                else:  # SELL
+                                    fill_price = bid
+                                    slippage_pct = (last_price - fill_price) / last_price
+                                    if slippage_pct > MAX_SLIPPAGE_PCT:
+                                        self.log(f"❌ {t212_ticker}: SKIP — cena proti nám (bid {fill_price:.4f} vs signál {last_price:.4f}, -{slippage_pct*100:.2f}%). Neprodávej ve ztrátě.")
+                                        return False
+                        except Exception as e:
+                            self.log(f"⚠️ {t212_ticker}: Price check failed: {e}")
 
                     try:
                         # Capital Client place_market_order(epic, size, direction, sl, tp)
