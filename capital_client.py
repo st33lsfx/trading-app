@@ -3,11 +3,12 @@ import json
 import time
 
 class CapitalClient:
-    def __init__(self, api_key, login, password, base_url="https://demo-api-capital.backend-capital.com"):
+    def __init__(self, api_key, login, password, base_url="https://demo-api-capital.backend-capital.com", timeout=10):
         self.api_key = api_key
         self.login = login
         self.password = password
         self.base_url = base_url
+        self.timeout = timeout  # Request timeout in seconds
         self.cst = None
         self.x_security_token = None
         self._last_request_time = 0
@@ -37,7 +38,7 @@ class CapitalClient:
         for attempt in range(retry_count):
             try:
                 self._rate_limit()
-                response = requests.post(endpoint, headers=headers, json=data)
+                response = requests.post(endpoint, headers=headers, json=data, timeout=self.timeout)
                 
                 # Handle rate limiting
                 if response.status_code == 429:
@@ -74,6 +75,11 @@ class CapitalClient:
     def _safe_request(self, method, endpoint, **kwargs):
         """Make a rate-limited request with error handling."""
         self._rate_limit()
+        
+        # Add timeout if not already specified
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = self.timeout
+        
         try:
             response = requests.request(method, endpoint, headers=self._get_headers(), **kwargs)
             
@@ -91,8 +97,27 @@ class CapitalClient:
                 response = requests.request(method, endpoint, headers=self._get_headers(), **kwargs)
             
             return response
+        except requests.exceptions.Timeout as e:
+            print(f"❌ Capital.com API Timeout ({self.timeout}s): {method} {endpoint}")
+            print(f"   Error details: {str(e)}")
+            return None
+        except requests.exceptions.ConnectionError as e:
+            print(f"❌ Capital.com Connection Error: {method} {endpoint}")
+            print(f"   Error details: {str(e)}")
+            print(f"   Possible causes: DNS failure, network unreachable, or API server down")
+            return None
+        except requests.exceptions.SSLError as e:
+            print(f"❌ Capital.com SSL/TLS Error: {method} {endpoint}")
+            print(f"   Error details: {str(e)}")
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Capital.com Request Error: {method} {endpoint}")
+            print(f"   Error details: {str(e)}")
+            return None
         except Exception as e:
-            print(f"Capital.com API Error: {e}")
+            print(f"❌ Capital.com Unexpected Error: {method} {endpoint}")
+            print(f"   Error type: {type(e).__name__}")
+            print(f"   Error details: {str(e)}")
             return None
 
     def get_account_info(self):
@@ -270,13 +295,17 @@ class CapitalClient:
 
         # Retry logic — API občas neodpoví na první pokus
         last_error = None
+        print(f"📍 Placing order: {epic} | {direction} | Size: {size} | SL: {data.get('stopLevel', 'None')} | TP: {data.get('profitLevel', 'None')}")
+        
         for attempt in range(3):
             response = self._safe_request("POST", endpoint, json=data)
             if response:
                 try:
                     result = response.json()
-                except Exception:
+                except Exception as json_err:
                     last_error = f"Invalid JSON response (status {response.status_code})"
+                    print(f"⚠️ Attempt {attempt+1}/3: {last_error}")
+                    print(f"   Response text: {response.text[:200]}...")
                     time.sleep(1)
                     continue
                 # Check for errors
@@ -292,14 +321,22 @@ class CapitalClient:
                     print(f"⚠️ Attempt {attempt+1}/3: {last_error}")
                     time.sleep(2 ** attempt)
                     continue
+                # Success!
+                print(f"✅ Order placed successfully on attempt {attempt+1}")
                 return result
             else:
-                last_error = "No response from API"
-                print(f"⚠️ Attempt {attempt+1}/3: {last_error}, retrying...")
+                last_error = "No response from API (check error logs above for details)"
+                print(f"⚠️ Attempt {attempt+1}/3: API request returned None, retrying in {2 ** attempt}s...")
                 time.sleep(2 ** attempt)
                 # Re-authenticate in case session expired
                 if attempt == 1:
+                    print("🔄 Re-authenticating in case of session expiry...")
                     self.authenticate()
+        
+        # All retries exhausted
+        print(f"❌ Order FAILED after 3 attempts")
+        print(f"   Epic: {epic}, Direction: {direction}, Size: {size}")
+        print(f"   Final error: {last_error}")
         raise Exception(f"Order failed after 3 attempts: {last_error}")
 
     def update_position(self, deal_id, stop_level=None, profit_level=None):
