@@ -1676,6 +1676,8 @@ class TradingBot:
                             'asset_class': asset_class,
                             'sl_distance_pct': result.get('sl_distance_pct', 0),
                             'rr_ratio': result.get('rr_ratio', 0),
+                            'tp_levels': result.get('tp_levels'),  # NEW: Scale-out levels
+                            'scale_out_profile': getattr(self.elite_strategy, 'scale_out_profile', 'balanced'),  # NEW
                         }
 
                         # 📲 TELEGRAM NOTIFICATION
@@ -2041,30 +2043,59 @@ class TradingBot:
                         self._partial_stages[deal_id] = set()
                     stages_done = self._partial_stages[deal_id]
 
-                    # === TIERED PARTIAL CLOSES (v5.0 — AGGRESSIVE EARLY LOCK) ===
-                    # Stage 1: At 1.0R -> Close 60% (lock profit FAST)
-                    if profit_dist >= (one_r * 1.0) and 'P1' not in stages_done:
-                        partial_size = round(current_size * 0.60, 2)
-                        if partial_size > 0:
-                            self.log(f"💰 PARTIAL-1: {epic} @ 1.0R — closing 60% ({partial_size})")
-                            result = self.client.reduce_position(deal_id, partial_size)
-                            if result:
-                                stages_done.add('P1')
-                                if hasattr(self, 'telegram') and self.telegram.enabled:
-                                    pnl_est = partial_size * profit_dist
-                                    self.telegram.notify_close(epic, pnl_est, "Partial-1 @ 1.0R (60%)")
+                    # === DYNAMIC SCALE-OUT (v6.0) ===
+                    # Get scale-out levels from trade metadata (if available)
+                    meta = getattr(self, '_trade_metadata', {}).get(epic, {})
+                    tp_levels = meta.get('tp_levels')
+                    
+                    if tp_levels:
+                        # NEW: Dynamic scale-out based on strategy configuration
+                        for level in tp_levels:
+                            r_mult = level['r_mult']
+                            close_pct = level['size_pct']
+                            label = level['label']
+                            
+                            # Check if this level should trigger
+                            if profit_dist >= (one_r * r_mult) and label not in stages_done:
+                                partial_size = round(current_size * close_pct, 2)
+                                if partial_size > 0:
+                                    profile = meta.get('scale_out_profile', 'unknown')
+                                    self.log(f"💰 PARTIAL-{label}: {epic} @ {r_mult}R — closing {close_pct*100:.0f}% ({partial_size}) [{profile}]")
+                                    result = self.client.reduce_position(deal_id, partial_size)
+                                    if result:
+                                        stages_done.add(label)
+                                        if hasattr(self, 'telegram') and self.telegram.enabled:
+                                            pnl_est = partial_size * profit_dist
+                                            self.telegram.notify_close(epic, pnl_est, f"Partial-{label} @ {r_mult}R ({close_pct*100:.0f}%)")
+                                # Only process one level per cycle
+                                break
+                    
+                    else:
+                        # LEGACY: Fallback to hardcoded logic for backwards compatibility
+                        # (for positions opened before scale-out feature was implemented)
+                        # Stage 1: At 1.0R -> Close 60% (lock profit FAST)
+                        if profit_dist >= (one_r * 1.0) and 'P1' not in stages_done:
+                            partial_size = round(current_size * 0.60, 2)
+                            if partial_size > 0:
+                                self.log(f"💰 PARTIAL-1: {epic} @ 1.0R — closing 60% ({partial_size}) [legacy]")
+                                result = self.client.reduce_position(deal_id, partial_size)
+                                if result:
+                                    stages_done.add('P1')
+                                    if hasattr(self, 'telegram') and self.telegram.enabled:
+                                        pnl_est = partial_size * profit_dist
+                                        self.telegram.notify_close(epic, pnl_est, "Partial-1 @ 1.0R (60%)")
 
-                    # Stage 2: At 1.5R -> Close 50% of REMAINING
-                    elif profit_dist >= (one_r * 1.5) and 'P2' not in stages_done and 'P1' in stages_done:
-                        partial_size = round(current_size * 0.50, 2)  # 50% of remaining ≈ 20% original
-                        if partial_size > 0:
-                            self.log(f"💰 PARTIAL-2: {epic} @ 1.5R — closing 50% remaining ({partial_size})")
-                            result = self.client.reduce_position(deal_id, partial_size)
-                            if result:
-                                stages_done.add('P2')
-                                if hasattr(self, 'telegram') and self.telegram.enabled:
-                                    pnl_est = partial_size * profit_dist
-                                    self.telegram.notify_close(epic, pnl_est, "Partial-2 @ 1.5R")
+                        # Stage 2: At 1.5R -> Close 50% of REMAINING
+                        elif profit_dist >= (one_r * 1.5) and 'P2' not in stages_done and 'P1' in stages_done:
+                            partial_size = round(current_size * 0.50, 2)  # 50% of remaining ≈ 20% original
+                            if partial_size > 0:
+                                self.log(f"💰 PARTIAL-2: {epic} @ 1.5R — closing 50% remaining ({partial_size}) [legacy]")
+                                result = self.client.reduce_position(deal_id, partial_size)
+                                if result:
+                                    stages_done.add('P2')
+                                    if hasattr(self, 'telegram') and self.telegram.enabled:
+                                        pnl_est = partial_size * profit_dist
+                                        self.telegram.notify_close(epic, pnl_est, "Partial-2 @ 1.5R")
 
                     # === ADAPTIVE TRAILING STOP (v3.2) ===
                     new_sl = None

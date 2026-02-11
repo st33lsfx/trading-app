@@ -92,6 +92,11 @@ class EliteStrategy:
         self.min_confluence = self.config.get('min_confluence', 3)  # v5.0: VP + 2 others
         self.atr_sl_mult = self.config.get('atr_sl_mult', 4.0)  # v5.0: Base fallback (overridden by asset class)
 
+        # === SCALE-OUT CONFIGURATION (v6.0) ===
+        from scale_out_config import get_scale_out_config
+        self.scale_out_profile = self.config.get('scale_out_profile', 'balanced')
+        self.scale_out_config = get_scale_out_config(self.scale_out_profile)
+
         # Internal state
         self._has_real_vwap = False
 
@@ -576,11 +581,36 @@ class EliteStrategy:
                 tp_level = close - tp_dist
             final_rr = min_rr
 
+        # =========================================================
+        # 7. GENERATE MULTIPLE TP LEVELS (Scale-Out v6.0)
+        # =========================================================
+        tp_levels = None
+        if self.scale_out_config.get("enabled", False):
+            tp_levels = []
+            for level_config in self.scale_out_config.get("levels", []):
+                r_mult = level_config["r_mult"]
+                close_pct = level_config["close_pct"]
+                label = level_config["label"]
+                
+                # Calculate TP price at this R:R multiple
+                if signal_candidate == "BUY":
+                    tp_price = close + (sl_dist * r_mult)
+                else:
+                    tp_price = close - (sl_dist * r_mult)
+                
+                tp_levels.append({
+                    "price": round(tp_price, 5),
+                    "size_pct": close_pct,
+                    "r_mult": r_mult,
+                    "label": label
+                })
+
         return {
             "signal": signal_candidate,
             "confidence": 0.8 + (score/10.0),
             "sl": round(sl_level, 5),
-            "tp": round(tp_level, 5),
+            "tp": round(tp_level, 5),  # Keep single TP for backwards compatibility
+            "tp_levels": tp_levels,     # NEW: Multiple TP levels for scale-out
             "adx": adx,
             "rsi": row.get('rsi', 50),
             "reason": f"{vp_reason} + {score} Confluence [{asset_class} ATR×{atr_sl_mult}]",
