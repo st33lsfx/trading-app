@@ -1669,8 +1669,11 @@ class TradingBot:
 
                     # Rounding
                     if asset_class == "crypto":
-                        if "SHIB" in t212_ticker or last_price < 0.01:
+                        if "SHIB" in t212_ticker or last_price < 0.001:
                             qty = round(qty, 0) # Whole numbers for cheap coins
+                            # SHIB needs no decimals for quantity usually
+                        elif last_price < 1.0:
+                            qty = round(qty, 4) # More precision for sub-$1 coins
                         else:
                             qty = round(qty, 2)
                     elif asset_class == "forex":
