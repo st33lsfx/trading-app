@@ -157,23 +157,36 @@ class CapitalClient:
         return {"markets": []}
 
     def get_instrument_info(self, epic):
-        """Get instrument details including min/max size."""
+        """Get instrument details including min/max size and lot step."""
         try:
             info = self.get_prices(epic)
             rules = info.get('dealingRules', {})
             snapshot = info.get('snapshot', {})
             margin_factor = rules.get('marginFactorValue', 0.05) or 0.05
+            
+            # minDealSize/maxDealSize can be {value: X} or direct number
+            def _extract_size(obj, default):
+                if isinstance(obj, dict):
+                    return obj.get('value', default)
+                return float(obj) if obj is not None else default
+            
+            min_ds = rules.get('minDealSize', {})
+            max_ds = rules.get('maxDealSize', {})
+            lot_size = info.get('instrument', {}) or {}
+            lot = lot_size.get('lotSize') if isinstance(lot_size, dict) else 1
+            lot = float(lot) if lot is not None and lot != '' else 0.01
+            
             return {
-                'min_size': rules.get('minDealSize', {}).get('value', 0.1),
-                'max_size': rules.get('maxDealSize', {}).get('value', 100000),
-                'lot_size': info.get('instrument', {}).get('lotSize', 1),
+                'min_size': _extract_size(min_ds, 0.01),
+                'max_size': _extract_size(max_ds, 100000),
+                'lot_size': lot if lot > 0 else 0.01,
                 'bid': snapshot.get('bid', 0),
                 'offer': snapshot.get('offer', 0),
                 'margin_factor': margin_factor,
                 'market_status': snapshot.get('marketStatus', 'UNKNOWN')
             }
-        except:
-            return {'min_size': 0.1, 'max_size': 100000, 'lot_size': 1, 'margin_factor': 0.05}
+        except Exception:
+            return {'min_size': 0.01, 'max_size': 100000, 'lot_size': 0.01, 'margin_factor': 0.05}
     
     def can_afford_instrument(self, epic, trade_amount):
         """Quick check if instrument is affordable with given trade amount."""

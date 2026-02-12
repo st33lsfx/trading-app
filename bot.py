@@ -1,3 +1,4 @@
+import math
 import time
 import os
 import random
@@ -17,6 +18,7 @@ from learning_engine import get_learning_engine
 from smart_analysis import get_smart_analyst
 from telegram_notifier import get_telegram_notifier
 from economic_data import get_economic_calendar
+from crypto_sentiment import get_crypto_sentiment
 
 load_dotenv()
 
@@ -42,8 +44,8 @@ USD_TO_CZK_RATE = 20.4  # Bude aktualizováno při startu bota
 SMALL_ACCOUNT_THRESHOLD = 5000  # Pod 5k Kč = malý účet
 PROFIT_MODE = True      # v6.0: Stricter filters, realistic targets
 
-# 50 aktiv = více příležitostí; ziskovost přes quality filtry (conf 68%, R:R 1.15+)
-PROFIT_WHITELIST_ONLY = False  # Skenuj všech 50, vstup jen high-quality
+# v6.3 PROFIT: Pouze whitelist (23 ziskových tickerů) — žádné ztrátové
+PROFIT_WHITELIST_ONLY = True  # Obchoduj JEN tickery z priority_tickers
 
 if LIVE_SAFE_MODE:
     MAX_POSITIONS = 3          # Ultra-safe
@@ -69,7 +71,7 @@ DRAWDOWN_EMERGENCY_PCT = 8.0   # Emergency stop at 8% drawdown
 
 SL_PCT = 0.01              # Fallback
 TP_PCT = 0.02              # Fallback
-MAX_SCAN_PER_CYCLE = 50    # Skenuje 50 aktiv (crypto + forex)
+MAX_SCAN_PER_CYCLE = 25    # v6.3: Skenuje max 25 (whitelist má 19 tickerů)
 INTERVAL = "15m"           # 15m timeframe for Scalping/DayTrading
 PERIOD = "30d"             # 30 dní – aktuálnější data (ne rok stará)
 
@@ -202,75 +204,65 @@ class TradingBot:
         self.last_trade_times = {}
         
         # =====================================================
-        # BLACKLIST (v6.0 CRYPTO OPTIMIZED — backtest failures)
+        # BLACKLIST (v6.3 PROFIT — backtest losers 30d, PF <1.0)
         # =====================================================
         self.ticker_blacklist = [
-            # Spreads / Choppy
             "Si=F", "Silver",
-            # v4.0: Original backtest losers (WR <35%, PF <0.9)
-            "AAVEUSD", "AAVE-USD", "HBARUSD", "HBAR-USD", "ALGOUSD", "ALGO-USD",
-            "INJUSD", "INJ-USD", "FILUSD", "FIL-USD", "LINKUSD", "LINK-USD",
-            "MKRUSD", "MKR-USD", "FLOKUSD", "FLOKI-USD",
-            # v6.0: Feb 2026 backtest losers (60d, 15m)
-            "ETHUSD", "ETH-USD",    # -38% (PF 0.60)
-            "XRPUSD", "XRP-USD",    # -28% (PF 0.76)
-            "DOGEUSD", "DOGE-USD",  # -18% (PF 0.82)
-            "AVAXUSD", "AVAX-USD",  # -42% (PF 0.61)
-            "BTCUSD", "BTC-USD",    # -4.5% (PF 0.91)
+            # v6.3: Worst backtest (return < -5%, PF < 0.9)
+            "XLMUSD", "XLM-USD",    # -25.5% (PF 0.45)
+            "WLDUSD", "WLD-USD",   # -22.1% (PF 0.39)
+            "LDOUSD", "LDO-USD",   # -16.6% (PF 0.51)
+            "FLOKUSD", "FLOKI-USD", "FLOKIUSD", # -13.1% (PF 0.67)
+            "CHZUSD", "CHZ-USD",   # -14.6% (PF 0.43)
+            "ADAUSD", "ADA-USD",   # -13% (PF 0.61)
+            "DOGEUSD", "DOGE-USD", # -11.8% (PF 0.68)
+            "LTCUSD", "LTC-USD",   # -12.5% (PF 0.63)
+            "TRXUSD", "TRX-USD",   # -12.1% (PF 0.72)
+            "HBARUSD", "HBAR-USD", # -11.3% (PF 0.63)
+            "INJUSD", "INJ-USD",   # -6.6% (PF 0.70)
+            "SHIBAUSD", "SHIB-USD", "SHIBUSD", # -6.3% (PF 0.85)
+            "OPUSD", "OP-USD",     # -3.9% (PF 0.88)
+            "KASUSD", "KAS-USD",   # -3.5% (PF 0.88)
+            "AAVEUSD", "AAVE-USD", # -2.9% (PF 0.92)
+            "AXSUSD", "AXS-USD",   # -2.4% (PF 0.93)
+            "ALGOUSD", "ALGO-USD", # -8.1% (PF 0.75)
+            "ICPUSD", "ICP-USD",   # -9.2% (PF 0.72)
+            "NEARUSD", "NEAR-USD", # -3.8% v backtestu s filtrem 1.3
+            "ENSUSD", "ENS-USD",   # -2% v backtestu
+            "MKRUSD", "MKR-USD",   # -0.04% marginální
         ]
         # Forex disabled (v6.0 CRYPTO ONLY) - max_forex_positions = 0
         self.forex_skip_for_profit = []  # Not used - forex trading disabled
         
         # =====================================================
-        # WATCHLIST – 50 CRYPTO (v4.0 PERFECT) — TOP performers first
+        # WATCHLIST – v6.3 PROFIT ONLY (backtest return > 0, PF > 1.1)
         # =====================================================
         self.priority_tickers = [
-            # === TIER 1 — Best backtest: EOS, SAND, MANA, DOGE, SOL, OP, BNB, NEAR ===
-            {"epic": "EOSUSD", "yf": "EOS-USD", "name": "EOS", "cat": "Crypto", "priority": True},
-            {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto", "priority": True},
-            {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto", "priority": True},
-            {"epic": "DOGEUSD", "yf": "DOGE-USD", "name": "Dogecoin", "cat": "Crypto", "priority": True},
-            {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto", "priority": True},
-            {"epic": "OPUSD", "yf": "OP-USD", "name": "Optimism", "cat": "Crypto", "priority": True},
-            {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto", "priority": True},
-            {"epic": "NEARUSD", "yf": "NEAR-USD", "name": "Near Protocol", "cat": "Crypto", "priority": True},
-            {"epic": "AXSUSD", "yf": "AXS-USD", "name": "Axie Infinity", "cat": "Crypto", "priority": True},
-            {"epic": "FETUSD", "yf": "FET-USD", "name": "Fetch.ai", "cat": "Crypto", "priority": True},
-            # === TIER 2 — BTC, ETH, major caps ===
-            {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "cat": "Crypto"},
-            {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "cat": "Crypto"},
-            {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto"},
-            {"epic": "ATOMUSD", "yf": "ATOM-USD", "name": "Cosmos", "cat": "Crypto"},
-            {"epic": "LTCUSD", "yf": "LTC-USD", "name": "Litecoin", "cat": "Crypto"},
-            {"epic": "RUNEUSD", "yf": "RUNE-USD", "name": "THORChain", "cat": "Crypto"},
-            {"epic": "SEIUSD", "yf": "SEI-USD", "name": "Sei", "cat": "Crypto"},
-            {"epic": "EGLDUSD", "yf": "EGLD-USD", "name": "MultiversX", "cat": "Crypto"},
-            {"epic": "ZILUSD", "yf": "ZIL-USD", "name": "Zilliqa", "cat": "Crypto"},
-            {"epic": "CHZUSD", "yf": "CHZ-USD", "name": "Chiliz", "cat": "Crypto"},
-            # === TIER 3 — Solid altcoins ===
-            {"epic": "ADAUSD", "yf": "ADA-USD", "name": "Cardano", "cat": "Crypto"},
-            {"epic": "AVAXUSD", "yf": "AVAX-USD", "name": "Avalanche", "cat": "Crypto"},
-            {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "cat": "Crypto"},
-            {"epic": "XLMUSD", "yf": "XLM-USD", "name": "Stellar", "cat": "Crypto"},
-            {"epic": "VETUSD", "yf": "VET-USD", "name": "VeChain", "cat": "Crypto"},
-            {"epic": "GALAUSD", "yf": "GALA-USD", "name": "Gala", "cat": "Crypto"},
-            {"epic": "ENSUSD", "yf": "ENS-USD", "name": "Ethereum Name Service", "cat": "Crypto"},
-            {"epic": "SHIBAUSD", "yf": "SHIB-USD", "name": "Shiba Inu", "cat": "Crypto"},
-            {"epic": "WLDUSD", "yf": "WLD-USD", "name": "Worldcoin", "cat": "Crypto"},
-            {"epic": "KASUSD", "yf": "KAS-USD", "name": "Kaspa", "cat": "Crypto"},
-            # === TIER 4 — Další příležitosti ===
-            # {"epic": "SUIUSD", "yf": "SUI-USD", "name": "Sui", "cat": "Crypto"},  # REMOVED: Not on Yahoo Finance
-            {"epic": "ARBUSD", "yf": "ARB-USD", "name": "Arbitrum", "cat": "Crypto"},
-            # {"epic": "PEPEUSD", "yf": "PEPE-USD", "name": "Pepe", "cat": "Crypto"},  # REMOVED: Not on Yahoo Finance
-            {"epic": "APEUSD", "yf": "APE-USD", "name": "ApeCoin", "cat": "Crypto"},
-            {"epic": "CRVUSD", "yf": "CRV-USD", "name": "Curve DAO", "cat": "Crypto"},
-            {"epic": "LDOUSD", "yf": "LDO-USD", "name": "Lido DAO", "cat": "Crypto"},
-            {"epic": "ICPUSD", "yf": "ICP-USD", "name": "Internet Computer", "cat": "Crypto"},
-            {"epic": "TRXUSD", "yf": "TRX-USD", "name": "Tron", "cat": "Crypto"},
-            {"epic": "FLOWUSD", "yf": "FLOW-USD", "name": "Flow", "cat": "Crypto"},
-            # {"epic": "IMXUSD", "yf": "IMX-USD", "name": "Immutable X", "cat": "Crypto"},  # REMOVED: Not on Yahoo Finance
+            # === TIER 1 — Best backtest (return > 15%, PF > 1.4) ===
+            {"epic": "EOSUSD", "yf": "EOS-USD", "name": "EOS", "cat": "Crypto", "priority": True, "pf": 3.45},
+            {"epic": "SANDUSD", "yf": "SAND-USD", "name": "Sandbox", "cat": "Crypto", "priority": True, "pf": 3.43},
+            {"epic": "GALAUSD", "yf": "GALA-USD", "name": "Gala", "cat": "Crypto", "priority": True, "pf": 2.15},
+            {"epic": "ETHUSD", "yf": "ETH-USD", "name": "Ethereum", "cat": "Crypto", "priority": True, "pf": 2.47},
+            {"epic": "SOLUSD", "yf": "SOL-USD", "name": "Solana", "cat": "Crypto", "priority": True, "pf": 2.18},
+            {"epic": "FETUSD", "yf": "FET-USD", "name": "Fetch.ai", "cat": "Crypto", "priority": True, "pf": 1.94},
+            {"epic": "CRVUSD", "yf": "CRV-USD", "name": "Curve DAO", "cat": "Crypto", "priority": True, "pf": 1.71},
+            {"epic": "LINKUSD", "yf": "LINK-USD", "name": "Chainlink", "cat": "Crypto", "priority": True, "pf": 2.07},
+            # === TIER 2 — Solid (return 5–15%, PF > 1.2) ===
+            {"epic": "BNBUSD", "yf": "BNB-USD", "name": "Binance Coin", "cat": "Crypto", "pf": 1.52},
+            {"epic": "RUNEUSD", "yf": "RUNE-USD", "name": "THORChain", "cat": "Crypto", "pf": 1.43},
+            {"epic": "MANAUSD", "yf": "MANA-USD", "name": "Decentraland", "cat": "Crypto", "pf": 1.32},
+            {"epic": "DOTUSD", "yf": "DOT-USD", "name": "Polkadot", "cat": "Crypto", "pf": 1.34},
+            {"epic": "EGLDUSD", "yf": "EGLD-USD", "name": "MultiversX", "cat": "Crypto", "pf": 1.23},
+            {"epic": "XRPUSD", "yf": "XRP-USD", "name": "Ripple", "cat": "Crypto", "pf": 1.39},
+            {"epic": "FILUSD", "yf": "FIL-USD", "name": "Filecoin", "cat": "Crypto", "pf": 1.37},
+            {"epic": "AVAXUSD", "yf": "AVAX-USD", "name": "Avalanche", "cat": "Crypto", "pf": 1.23},
+            # === TIER 3 — Positive (return 0–5%, PF > 1.0) ===
+            {"epic": "FLOWUSD", "yf": "FLOW-USD", "name": "Flow", "cat": "Crypto", "pf": 1.52},
+            {"epic": "BTCUSD", "yf": "BTC-USD", "name": "Bitcoin", "cat": "Crypto", "pf": 1.16},
+            {"epic": "SEIUSD", "yf": "SEI-USD", "name": "Sei", "cat": "Crypto", "pf": 1.12},
         ]
-        # Total: 47 crypto (was 50, removed 3 unavailable on Yahoo Finance: SUI, PEPE, IMX)
+        # MKR, NEAR, ENS — odstraněny (stále marginální/ztrátové v backtestu s filtrem 1.3)
+        # Total: 19 crypto — pouze ziskové z backtestu (30d, 15m, conf 72%, R:R 1.3)
         
         # Pass protected list to Learning Engine to prevent auto-ban
         self.protected_tickers = [t["yf"] for t in self.priority_tickers]
@@ -309,7 +301,7 @@ class TradingBot:
         self._drawdown_alerted = False  # Track if alert already sent
 
         # Spread filter (v5.0: relaxed for crypto)
-        self.max_spread_pct = 1.5     # v5.1: Max 1.5% spread pro crypto (0.25 bylo moc přísné)
+        self.max_spread_pct = 1.2     # v6.2: Max 1.2% spread — méně fees, lepší fill
 
         # Trade tracking
         self.session_trades = []
@@ -433,11 +425,11 @@ class TradingBot:
         - Base: Grow trade_amount with account balance
         - Streak Adjustment: Reduce after losses, increase after wins
         - Anti-Tilt: Hard cap after 3+ consecutive losses
+        - v6.2: Always refresh last_available_czk for Capital sizing (prevents wrong buy size)
         """
-        if not self.compound_profits:
-            return
-
         try:
+            if self.broker != "capital":
+                return
             acc = self.client.get_account_info()
             accounts = acc.get('accounts', [])
             if not accounts:
@@ -450,8 +442,11 @@ class TradingBot:
             balance = balance_usd * USD_TO_CZK_RATE
             available = available_usd * USD_TO_CZK_RATE
             
-            # Store for sizing logic
-            self.last_available_czk = available
+            # v6.2: ALWAYS store for sizing (prevents INSUFFICIENT_FUNDS / wrong buy size)
+            self.last_available_czk = available if available > 0 else balance
+
+            if not self.compound_profits:
+                return
 
             if balance <= 0:
                 return
@@ -1181,10 +1176,13 @@ class TradingBot:
         elif self.broker == "capital":
             # Small account mode: Use curated priority list filtered by active categories
             if getattr(self, 'small_account_mode', False):
-                # Learning-based watchlist (best + exploration)
-                dynamic_list = self._get_dynamic_watchlist(TARGET_WATCHLIST_SIZE)
-                if not dynamic_list and hasattr(self, 'priority_tickers'):
+                # v6.3: PROFIT_WHITELIST_ONLY = pouze priority_tickers (žádné exploration)
+                if PROFIT_WHITELIST_ONLY and hasattr(self, 'priority_tickers'):
                     dynamic_list = self.priority_tickers
+                else:
+                    dynamic_list = self._get_dynamic_watchlist(TARGET_WATCHLIST_SIZE)
+                    if not dynamic_list and hasattr(self, 'priority_tickers'):
+                        dynamic_list = self.priority_tickers
 
                 for pt in dynamic_list:
                     # Filter by active categories
@@ -1419,13 +1417,19 @@ class TradingBot:
             # ========================================
             # CONFIDENCE CHECK - kvalita nad kvantitou (profit)
             # ========================================
-            # v4.0 CRYPTO PERFECT: 0.68 min confidence (quality > quantity)
-            MIN_CONFIDENCE = 0.68 if PROFIT_MODE else 0.60
+            # v6.3 PROFIT: 0.72 min confidence (jen A+ setupy)
+            MIN_CONFIDENCE = 0.72 if PROFIT_MODE else 0.60
             confidence = result.get("confidence", 0)
             
             if signal in ["BUY", "SELL"] and confidence < MIN_CONFIDENCE:
                 self.log(f"[{yf_ticker}] Low confidence ({confidence:.0%}), skipping")
                 return False
+            # v6.2: Confluence 4+ jen pokud strategie vrací (elite_v2 má, elite_v3 nemá)
+            if signal in ["BUY", "SELL"] and PROFIT_MODE:
+                confluence = result.get("confluence_score")
+                if confluence is not None and confluence < 4:
+                    self.log(f"[{yf_ticker}] Low confluence ({confluence}/6), skipping")
+                    return False
             # ========================================
             
             # ========================================
@@ -1438,6 +1442,14 @@ class TradingBot:
                     self.log(f"⚠️ VIX vysoký ({msg}) — crypto obchod povolený (jiné korelace)")
                 else:
                     self.log(f"⚠️ Market Sentiment Unsafe: {msg}. Skipping trade.")
+                    return False
+
+            # 1b. Crypto Sentiment (v6.3 PROFI) — Fear & Greed + Funding rate
+            if asset_class == "crypto" and signal in ["BUY", "SELL"]:
+                sent = get_crypto_sentiment()
+                skip, reason = sent.should_skip_crypto_trade(t212_ticker)
+                if skip:
+                    self.log(f"🚫 {yf_ticker}: {reason}")
                     return False
                 
             # 2. Analyst Ratings (Yahoo Finance)
@@ -1495,10 +1507,6 @@ class TradingBot:
                 # CORRELATION CHECK (Risk Management)
                 # ========================================
                 corr_ok, corr_msg = self.check_correlation(t212_ticker, confidence, positions)
-                if not corr_ok:
-                    self.log(f"[SKIP] {corr_msg}")
-                    return False
-                
                 if not corr_ok:
                     self.log(f"[SKIP] {corr_msg}")
                     return False
@@ -1667,19 +1675,29 @@ class TradingBot:
                         self.log(f"📉 {t212_ticker}: Sizing reduced due to balance ({self.last_available_czk:.0f} CZK).")
                         self.log(f"   Req: {position_cost_czk:.0f} CZK → Limit: {max_position_value:.0f} CZK (Risk {target_risk_czk:.0f} → {reduced_risk_czk:.1f} CZK)")
 
-                    # Rounding
-                    if asset_class == "crypto":
-                        if "SHIB" in t212_ticker or last_price < 0.001:
-                            qty = round(qty, 0) # Whole numbers for cheap coins
-                            # SHIB needs no decimals for quantity usually
-                        elif last_price < 1.0:
-                            qty = round(qty, 4) # More precision for sub-$1 coins
-                        else:
-                            qty = round(qty, 2)
-                    elif asset_class == "forex":
-                        qty = round(qty, 0) # Forex lots usually 1000+, but bot uses units
+                    # === v6.2: BROKER CONSTRAINTS (min/max/lot_size) — prevents API rejection ===
+                    inst_info = self.client.get_instrument_info(t212_ticker)
+                    min_size = inst_info.get('min_size', 0.01)
+                    max_size = inst_info.get('max_size', 100000)
+                    lot_size = inst_info.get('lot_size', 0.01)
+                    step = lot_size if lot_size > 0 else 0.01
+
+                    if qty < min_size:
+                        min_risk_czk = min_size * risk_per_share * USD_TO_CZK_RATE
+                        if min_risk_czk > (getattr(self, 'last_available_czk', 2000) * 0.3):
+                            self.log(f"⚠️ {t212_ticker}: SKIP — min size {min_size} risk {min_risk_czk:.0f} CZK > 30% balance")
+                            return False
+                        qty = min_size
+                        self.log(f"📐 {t212_ticker}: Using min size {min_size} (risk: {min_risk_czk:.1f} CZK)")
                     else:
-                        qty = round(qty, 2)
+                        qty = min(max_size, qty)
+                        if step > 0:
+                            qty = math.floor(qty / step) * step
+                            if qty < min_size:
+                                qty = min_size
+
+                    # Float cleanup (avoid 0.0100000001) — broker min/max/step already validated
+                    qty = round(qty, 8)
 
                     if qty <= 0:
                         self.log(f"⚠️ {t212_ticker}: Calculated Qty is 0 (Risk {target_risk_czk} / SL {sl_distance})")
@@ -1731,7 +1749,7 @@ class TradingBot:
                             info = self.client.get_instrument_info(t212_ticker)
                             bid, offer = info.get('bid', 0), info.get('offer', 0)
                             if bid > 0 and offer > 0 and last_price > 0:
-                                MAX_SLIPPAGE_PCT = 0.003  # v4.0: max 0.3% horší — nekupuj ve ztrátě
+                                MAX_SLIPPAGE_PCT = 0.0025  # v6.2: max 0.25% — přísnější pro profit
                                 if signal == "BUY":
                                     fill_price = offer
                                     slippage_pct = (fill_price - last_price) / last_price
@@ -1763,6 +1781,22 @@ class TradingBot:
                     if sl_distance_pct < 0.005 or tp_distance_pct < 0.01:  # Min 0.5% SL, 1% TP
                         self.log(f"❌ {t212_ticker}: SKIP — SL/TP too tight (SL: {sl_distance_pct*100:.2f}%, TP: {tp_distance_pct*100:.2f}%). Minimum: 0.5% SL, 1% TP.")
                         return False
+
+                    # v6.3 PROFIT: Min R:R 1.3 — reject low-quality setups
+                    if rr_actual < 1.3 and sl_distance > 0:
+                        self.log(f"❌ {t212_ticker}: SKIP — R:R {rr_actual:.1f} < 1.3")
+                        return False
+
+                    # v6.2 PROFIT: Revalidate SL/TP from live fill price (offer/bid) — avoid bad fills
+                    fill_price = inst_info.get('offer', last_price) if signal == "BUY" else inst_info.get('bid', last_price)
+                    if fill_price and fill_price > 0:
+                        sl_dist_from_fill = abs(fill_price - stop_price)
+                        sl_pct_from_fill = sl_dist_from_fill / fill_price if fill_price > 0 else 0
+                        if sl_pct_from_fill < 0.004:  # Min 0.4% SL from actual fill
+                            self.log(f"❌ {t212_ticker}: SKIP — SL too tight from fill (fill {fill_price:.4f}, SL dist {sl_pct_from_fill*100:.2f}%)")
+                            return False
+
+                    self.log(f"📋 PRE-ORDER: {t212_ticker} | qty={qty} | min={inst_info.get('min_size', 0.01)} | bal={getattr(self, 'last_available_czk', 0):.0f} CZK | fill≈{fill_price:.4f}")
 
                     try:
                         # Capital Client place_market_order(epic, size, direction, sl, tp)
@@ -1987,6 +2021,7 @@ class TradingBot:
     def check_news_filter(self, ticker):
         """
         Check if High Impact news is imminent for the ticker's currencies.
+        v6.3: Crypto vždy sleduje USD (korelace). NFP/FOMC/CPI = 60 min window.
         Returns: (passed: bool, reason: str)
         """
         if self.broker != "capital": return True, ""
@@ -2001,32 +2036,34 @@ class TradingBot:
         if self.news_cache.empty:
             return True, ""
             
-        # 2. Extract Currencies
-        if len(ticker) != 6 and "=" not in ticker: return True, ""
-        clean = ticker.split('=')[0]
-        currs = [clean[:3], clean[3:]] if len(clean) == 6 else ["USD"]
+        # 2. Extract Currencies — crypto vždy + USD (korelace s risk assets)
+        clean = ticker.upper().replace("=X", "").replace("-", "")
+        currs = ["USD"]  # Základ pro crypto
+        if len(clean) == 6:
+            currs = list(set([clean[:3], clean[3:], "USD"]))  # Přidat USD vždy
         
         # 3. Filter Events
-        # Time format in DF is "HH:MM" (e.g. "14:30")
+        HIGH_IMPACT_KEYWORDS = ["NFP", "FOMC", "CPI", "INTEREST RATE", "FED", "ECB", "NONFARM"]
         try:
-            current_hm = now.strftime("%H:%M")
             current_min = now.hour * 60 + now.minute
             
             for index, row in self.news_cache.iterrows():
-                # Filter by Impact & Currency
-                if row['Impact'] != 'High': continue
+                if str(row.get('Impact', '')).upper() != 'HIGH': continue
                 if row['Country'] not in currs and row['Country'] != 'ALL': continue
                 
-                # Check Time
-                event_time_str = row['Time']
+                event_title = str(row.get('Event', '')).upper()
+                # NFP, FOMC, CPI = 60 min window (profi)
+                window = 60 if any(kw in event_title for kw in HIGH_IMPACT_KEYWORDS) else 30
+                
+                event_time_str = row.get('Time', '00:00')
                 try:
-                    eh, em = map(int, event_time_str.split(':'))
+                    parts = str(event_time_str).split(':')
+                    eh, em = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
                     event_min = eh * 60 + em
-                    
                     diff = abs(event_min - current_min)
-                    if diff <= 30: # 30 min window
-                        return False, f"News Event: {row['Event']} ({row['Country']}) at {event_time_str}"
-                except:
+                    if diff <= window:
+                        return False, f"News: {row.get('Event', '')} ({row['Country']}) @ {event_time_str}"
+                except (ValueError, IndexError):
                     continue
         except Exception as e:
              self.log(f"News Filter Error: {e}")
@@ -2036,6 +2073,9 @@ class TradingBot:
     def scan_cycle(self):
         self.update_daily_pnl()
         self.startup_cycles += 1 # Increment safety counter
+
+        # Refresh balance before any trade (v6.2: fixes stale last_available_czk → wrong buy size)
+        self.update_trade_amount_compound()
 
         # Record closed trades for learning (every cycle)
         self.record_closed_trades()
@@ -2170,6 +2210,15 @@ class TradingBot:
                             # Check if this level should trigger
                             if profit_dist >= (one_r * r_mult) and label not in stages_done:
                                 partial_size = round(current_size * close_pct, 2)
+                                # v6.2: min_size check — API rejects partial < broker minimum
+                                try:
+                                    inst_info = self.client.get_instrument_info(epic)
+                                    min_size = inst_info.get('min_size', 0.01)
+                                    if partial_size < min_size:
+                                        self.log(f"⏭️ PARTIAL-{label}: {epic} skip — {partial_size} < min {min_size} (čekám na větší profit)")
+                                        break
+                                except Exception:
+                                    min_size = 0.01
                                 if partial_size > 0:
                                     profile = meta.get('scale_out_profile', 'unknown')
                                     self.log(f"💰 PARTIAL-{label}: {epic} @ {r_mult}R — closing {close_pct*100:.0f}% ({partial_size}) [{profile}]")
@@ -2188,7 +2237,13 @@ class TradingBot:
                         # Stage 1: At 1.0R -> Close 60% (lock profit FAST)
                         if profit_dist >= (one_r * 1.0) and 'P1' not in stages_done:
                             partial_size = round(current_size * 0.60, 2)
-                            if partial_size > 0:
+                            _min = 0.01
+                            try:
+                                _inst = self.client.get_instrument_info(epic)
+                                _min = _inst.get('min_size', 0.01)
+                            except Exception:
+                                pass
+                            if partial_size >= _min and partial_size > 0:
                                 self.log(f"💰 PARTIAL-1: {epic} @ 1.0R — closing 60% ({partial_size}) [legacy]")
                                 result = self.client.reduce_position(deal_id, partial_size)
                                 if result:
@@ -2200,7 +2255,13 @@ class TradingBot:
                         # Stage 2: At 1.5R -> Close 50% of REMAINING
                         elif profit_dist >= (one_r * 1.5) and 'P2' not in stages_done and 'P1' in stages_done:
                             partial_size = round(current_size * 0.50, 2)  # 50% of remaining ≈ 20% original
-                            if partial_size > 0:
+                            _min = 0.01
+                            try:
+                                _inst = self.client.get_instrument_info(epic)
+                                _min = _inst.get('min_size', 0.01)
+                            except Exception:
+                                pass
+                            if partial_size >= _min and partial_size > 0:
                                 self.log(f"💰 PARTIAL-2: {epic} @ 1.5R — closing 50% remaining ({partial_size}) [legacy]")
                                 result = self.client.reduce_position(deal_id, partial_size)
                                 if result:

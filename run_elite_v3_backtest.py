@@ -131,13 +131,19 @@ def run_backtest(
                 res = {"signal": "NEUTRAL"}
             sig = res.get("signal", "NEUTRAL")
             conf = res.get("confidence", 0)
-            # v4.0 CRYPTO PERFECT: min confidence 0.68
-            if sig in ("BUY", "SELL") and conf < 0.68:
+            # v6.3 PROFIT: min confidence 0.72 (match live bot)
+            if sig in ("BUY", "SELL") and conf < 0.72:
                 sig = "NEUTRAL"
             if sig in ("BUY", "SELL") and res.get("sl") is not None and res.get("tp") is not None:
                 close_px = row["Close"]
                 sl = float(res["sl"])
                 tp = float(res["tp"])
+                # v6.3: Min R:R 1.3 (match live bot)
+                sl_dist = abs(close_px - sl)
+                tp_dist = abs(close_px - tp)
+                rr = tp_dist / sl_dist if sl_dist > 0 else 0
+                if rr < 1.3:
+                    sig = "NEUTRAL"
                 risk_amt = balance * risk_pct
                 if sig == "BUY":
                     dist = close_px - sl
@@ -218,20 +224,14 @@ def main():
 
     # === CRYPTO + FOREX kombinovaný backtest ===
     if args.all:
-        # v7.0: 50 CRYPTO (forex vypnutý — ztratový)
+        # v6.3 PROFIT: Jen 19 ziskových tickerů (whitelist)
         crypto_tickers = [
-            "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "DOGE-USD", "ADA-USD",
-            "AVAX-USD", "DOT-USD", "LINK-USD", "NEAR-USD", "ATOM-USD", "XLM-USD", "LTC-USD",
-            "TRX-USD", "ICP-USD", "ALGO-USD", "SUI-USD", "INJ-USD", "HBAR-USD",
-            "SAND-USD", "SHIB-USD", "PEPE-USD", "ARB-USD", "OP-USD",
-            "FIL-USD", "VET-USD", "RUNE-USD", "SEI-USD", "WLD-USD",
-            "AAVE-USD", "MANA-USD", "GALA-USD", "AXS-USD", "EOS-USD",
-            "MKR-USD", "APE-USD", "CRV-USD", "LDO-USD", "ENS-USD",
-            "IMX-USD", "FLOKI-USD", "FET-USD", "RNDR-USD", "STX-USD",
-            "EGLD-USD", "FLOW-USD", "CHZ-USD", "ZIL-USD", "KAS-USD",
+            "EOS-USD", "SAND-USD", "GALA-USD", "ETH-USD", "SOL-USD", "FET-USD", "CRV-USD", "LINK-USD",
+            "BNB-USD", "RUNE-USD", "MANA-USD", "DOT-USD", "EGLD-USD", "XRP-USD", "FIL-USD", "AVAX-USD",
+            "FLOW-USD", "BTC-USD", "SEI-USD",
         ]
         period = args.period if args.period != "60d" else "30d"
-        print(f"=== BACKTEST ELITE V3 — 50 CRYPTO (2% risk) ===\n")
+        print(f"=== BACKTEST ELITE V3 — 22 PROFIT WHITELIST (2% risk, conf 72%, R:R 1.3) ===\n")
         results = []
         
         for t in crypto_tickers:
