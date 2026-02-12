@@ -29,7 +29,7 @@ load_dotenv()
 DRY_RUN = False  # v3.2: START IN DRY-RUN — verify signals first, then set False
 
 # API MODE - "demo" nebo "live"
-CAPITAL_MODE = os.getenv("CAPITAL_MODE", "demo")  # Default demo pro bezpečnost
+CAPITAL_MODE = os.getenv("CAPITAL_MODE", "live")  # Default demo pro bezpečnost
 
 # ULTRA-CONSERVATIVE SETTINGS (pro první live týden)
 LIVE_SAFE_MODE = False  # Zapni pro extra bezpečnost
@@ -37,7 +37,8 @@ LIVE_SAFE_MODE = False  # Zapni pro extra bezpečnost
 # Rozpočet (CZK) – MUST be before MAX_POSITIONS calc
 INITIAL_CAPITAL_CZK = 2000
 TRADE_RISK_PCT = 0.08   # 8% kapitálu na obchod (2000 * 0.08 = 160 CZK) — agresivnější
-USD_TO_CZK_RATE = 23.0  # Aktuální kurz USD/CZK (Capital.com je v USD!)
+# USD/CZK kurz - automaticky stažen při startu, fallback 20.4
+USD_TO_CZK_RATE = 20.4  # Bude aktualizováno při startu bota
 SMALL_ACCOUNT_THRESHOLD = 5000  # Pod 5k Kč = malý účet
 PROFIT_MODE = True      # v6.0: Stricter filters, realistic targets
 
@@ -77,6 +78,10 @@ TARGET_WATCHLIST_SIZE = 50 # 50 aktiv (crypto + forex)
 MIN_TRADES_FOR_RANK = 3
 
 from capital_client import CapitalClient
+from exchange_rate import get_current_usd_czk_rate
+
+# Auto-update USD/CZK rate on bot startup
+USD_TO_CZK_RATE = get_current_usd_czk_rate(fallback=20.4)
 
 class TradingBot:
     def __init__(self, api_key, base_url, broker="t212", cap_login=None, cap_pass=None):
