@@ -215,8 +215,8 @@ class TradingBot:
             "ETHUSD", "ETH-USD",    # -38% (PF 0.60)
             "XRPUSD", "XRP-USD",    # -28% (PF 0.76)
             "DOGEUSD", "DOGE-USD",  # -18% (PF 0.82)
-            "AVAXUSD", "AVAX-USD",  # -42% (PF 0.61) ← NEW
-            "BTCUSD", "BTC-USD",    # -4.5% (PF 0.91) ← NEW
+            "AVAXUSD", "AVAX-USD",  # -42% (PF 0.61)
+            "BTCUSD", "BTC-USD",    # -4.5% (PF 0.91)
         ]
         # Forex disabled (v6.0 CRYPTO ONLY) - max_forex_positions = 0
         self.forex_skip_for_profit = []  # Not used - forex trading disabled
@@ -449,6 +449,9 @@ class TradingBot:
             # KONVERZE: Capital.com je v USD, my počítáme v CZK
             balance = balance_usd * USD_TO_CZK_RATE
             available = available_usd * USD_TO_CZK_RATE
+            
+            # Store for sizing logic
+            self.last_available_czk = available
 
             if balance <= 0:
                 return
@@ -1580,6 +1583,29 @@ class TradingBot:
                     stop_price = result.get("sl")
                     limit_price = result.get("tp")
 
+                    # === FALLBACK SL/TP if strategy returns None ===
+                    if stop_price is None or limit_price is None:
+                        self.log(f"⚠️ {t212_ticker}: Strategy returned None SL/TP, using fallback calculation")
+                        from elite_strategy import EliteStrategy
+                        risk_profile = EliteStrategy.RISK_PROFILES.get(asset_class, EliteStrategy.RISK_PROFILES["default"])
+                        
+                        # Calculate fallback SL
+                        if stop_price is None:
+                            sl_pct = risk_profile["min_sl_pct"]
+                            if signal == "BUY":
+                                stop_price = last_price * (1 - sl_pct)
+                            else:
+                                stop_price = last_price * (1 + sl_pct)
+                        
+                        # Calculate fallback TP (2x SL distance for 2:1 R:R)
+                        if limit_price is None:
+                            sl_distance = abs(last_price - stop_price)
+                            tp_distance = sl_distance * 2.0  # 2:1 R:R
+                            if signal == "BUY":
+                                limit_price = last_price + tp_distance
+                            else:
+                                limit_price = last_price - tp_distance
+
                     # === RISK-BASED POSITION SIZING (v3.1 FIX) ===
                     # Calculate SL distance for risk-based sizing
                     if stop_price and last_price > 0:
@@ -1595,11 +1621,55 @@ class TradingBot:
                         return False
 
                     # Use risk-based sizing
-                    qty = self.calculate_risk_based_size(t212_ticker, sl_distance, last_price, asset_class)
-                    if qty <= 0:
-                        self.log(f"❌ {t212_ticker}: Calculated QTY is 0 or negative! Skipping.")
-                        return False
+                    risk_per_share = sl_distance
+                    if risk_per_share > 0:
+                        # Standard risk calculation
+                        qty = target_risk_czk / (risk_per_share * USD_TO_CZK_RATE)
+                    else:
+                        qty = 0
 
+                    # === BALANCE CHECK & RESIZING (v6.1 FIX) ===
+                    # Prevent "Insufficient Funds" rejection by capping size to available balance
+                    # Crypto leverage is often low (1:2 or 1:1). We check against 1:1 to be safe.
+                    # Position Cost in CZK = Price(USD) * Qty * Rate
+                    position_cost_czk = last_price * qty * USD_TO_CZK_RATE
+                    
+                    # Available balance check (use cached available or fetch fresh)
+                    if not hasattr(self, 'last_available_czk'):
+                         self.last_available_czk = 2000.0 # Fallback
+                    
+                    # Safety buffer: use max 95% of available funds
+                    max_cost_czk = self.last_available_czk * 0.95
+                    
+                    # If leverage is available (e.g. 1:2), we could multiply max_cost,
+                    # but for safety we stick to 1:1 check first or 1:1.5
+                    # Let's assume 1.5x leverage factor as safe middle ground for crypto CFDs
+                    LEVERAGE_FACTOR = 1.5
+                    
+                    if position_cost_czk > (max_cost_czk * LEVERAGE_FACTOR):
+                        old_qty = qty
+                        # Reduce qty to fit balance
+                        max_position_value = max_cost_czk * LEVERAGE_FACTOR
+                        qty = max_position_value / (last_price * USD_TO_CZK_RATE)
+                        
+                        reduced_risk_czk = qty * risk_per_share * USD_TO_CZK_RATE
+                        self.log(f"📉 {t212_ticker}: Sizing reduced due to balance ({self.last_available_czk:.0f} CZK).")
+                        self.log(f"   Req: {position_cost_czk:.0f} CZK → Limit: {max_position_value:.0f} CZK (Risk {target_risk_czk:.0f} → {reduced_risk_czk:.1f} CZK)")
+
+                    # Rounding
+                    if asset_class == "crypto":
+                        if "SHIB" in t212_ticker or last_price < 0.01:
+                            qty = round(qty, 0) # Whole numbers for cheap coins
+                        else:
+                            qty = round(qty, 2)
+                    elif asset_class == "forex":
+                        qty = round(qty, 0) # Forex lots usually 1000+, but bot uses units
+                    else:
+                        qty = round(qty, 2)
+
+                    if qty <= 0:
+                        self.log(f"⚠️ {t212_ticker}: Calculated Qty is 0 (Risk {target_risk_czk} / SL {sl_distance})")
+                        return False
                     # === DETAILED TRADE LOGGING (v3.2) ===
                     sl_pct = sl_distance / last_price * 100
                     tp_distance = abs(last_price - limit_price) if limit_price else 0
@@ -1662,6 +1732,23 @@ class TradingBot:
                                         return False
                         except Exception as e:
                             self.log(f"⚠️ {t212_ticker}: Price check failed: {e}")
+
+                    # === VALIDATE SL/TP BEFORE ORDER ===
+                    if stop_price is None or limit_price is None:
+                        self.log(f"❌ {t212_ticker}: SKIP — Invalid SL/TP (SL: {stop_price}, TP: {limit_price}). Strategy failed to calculate risk levels.")
+                        return False
+                    
+                    if stop_price <= 0 or limit_price <= 0:
+                        self.log(f"❌ {t212_ticker}: SKIP — Invalid SL/TP values (SL: {stop_price}, TP: {limit_price}). Price too low for accurate calculation.")
+                        return False
+                    
+                    # Validate SL/TP distance (must be meaningful)
+                    sl_distance_pct = abs(stop_price - last_price) / last_price if last_price > 0 else 0
+                    tp_distance_pct = abs(limit_price - last_price) / last_price if last_price > 0 else 0
+                    
+                    if sl_distance_pct < 0.005 or tp_distance_pct < 0.01:  # Min 0.5% SL, 1% TP
+                        self.log(f"❌ {t212_ticker}: SKIP — SL/TP too tight (SL: {sl_distance_pct*100:.2f}%, TP: {tp_distance_pct*100:.2f}%). Minimum: 0.5% SL, 1% TP.")
+                        return False
 
                     try:
                         # Capital Client place_market_order(epic, size, direction, sl, tp)
