@@ -197,15 +197,21 @@ class TradingBot:
         self.last_trade_times = {}
         
         # =====================================================
-        # BLACKLIST (v4.0 CRYPTO PERFECT — ztrátové z backtestu)
+        # BLACKLIST (v6.0 CRYPTO OPTIMIZED — backtest failures)
         # =====================================================
         self.ticker_blacklist = [
-            "LTCUSD", "LTC-USD",  # Choppy
-            "Si=F", "Silver",     # Spreads
-            # v4.0: Backtest ztrátové (WR < 35%, PF < 0.9)
+            # Spreads / Choppy
+            "Si=F", "Silver",
+            # v4.0: Original backtest losers (WR <35%, PF <0.9)
             "AAVEUSD", "AAVE-USD", "HBARUSD", "HBAR-USD", "ALGOUSD", "ALGO-USD",
             "INJUSD", "INJ-USD", "FILUSD", "FIL-USD", "LINKUSD", "LINK-USD",
             "MKRUSD", "MKR-USD", "FLOKUSD", "FLOKI-USD",
+            # v6.0: Feb 2026 backtest losers (60d, 15m)
+            "ETHUSD", "ETH-USD",    # -38% (PF 0.60)
+            "XRPUSD", "XRP-USD",    # -28% (PF 0.76)
+            "DOGEUSD", "DOGE-USD",  # -18% (PF 0.82)
+            "AVAXUSD", "AVAX-USD",  # -42% (PF 0.61) ← NEW
+            "BTCUSD", "BTC-USD",    # -4.5% (PF 0.91) ← NEW
         ]
         # Forex disabled (v6.0 CRYPTO ONLY) - max_forex_positions = 0
         self.forex_skip_for_profit = []  # Not used - forex trading disabled
