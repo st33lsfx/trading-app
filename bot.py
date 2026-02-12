@@ -1620,6 +1620,17 @@ class TradingBot:
                         self.log(f"⚠️ {t212_ticker}: Invalid SL distance, skipping")
                         return False
 
+                    # === DEFINE TARGET RISK (Fix NameError) ===
+                    target_risk_czk = self.trade_amount  # Default risk
+                    
+                    # Safe start logic (first 10 trades = 100 CZK)
+                    if not hasattr(self, '_total_live_trades'):
+                        self._total_live_trades = 0
+                        
+                    if self._total_live_trades < 10:
+                        target_risk_czk = 100.0
+                        self.log(f"🛡️ Safe start: Using 100 CZK risk (trade #{self._total_live_trades + 1}/10)")
+
                     # Use risk-based sizing
                     risk_per_share = sl_distance
                     if risk_per_share > 0:
